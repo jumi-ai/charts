@@ -1,24 +1,24 @@
 # jumi
 
-Helm chart for a self-hosted [Jumi](https://github.com/kirmanak/jumi) control plane.
+Helm chart for a self-hosted Jumi control plane.
 
-This starts three processes and wires a ledger. It does not grant a model, create a GitHub App, or install Authentik, Phoenix, or a cluster network policy. The homelab charts are not this chart.
+It installs a router, an engine, a worker, and optional Postgres. Ingress is off unless enabled, and then only to the router.
 
-Chart `0.1.0` is tested against image tag `v7.2.2`. Those images still live at `ghcr.io/kirmanak/jumi-reviewer` and `ghcr.io/kirmanak/jumi-worker`. That namespace moves when the app repo moves. Do not treat this chart as that cutover.
+Chart `0.1.0` is tested against image tag `v7.2.2`. Images are `ghcr.io/kirmanak/jumi-reviewer` and `ghcr.io/kirmanak/jumi-worker`.
 
 ## What you get
 
-- **router** — the only public webhook. Reviewer image, `JUMI_ROLE=router`. No auth volume.
+- **router** — the only public webhook. Reviewer image, `JUMI_ROLE=router`. The router does not mount /data.
 - **engine** — reviews. Reviewer image, `JUMI_ROLE=engine`. PVC at `/data`.
 - **worker** — implement / follow-up / conflict. Worker image. PVC at `/data`.
 - Optional bundled Postgres. Otherwise you bring `DATABASE_URL`.
-- Optional Ingress to the router only. Engine and worker are not exposed. Port 3001 is not published.
+- Ingress is off unless enabled, and then only to the router.
 
 Replicas stay at 1. Engine and worker each have one RWO volume and need their own OpenCode login.
 
 ## Secret
 
-The chart does not create forge tokens. Make a Secret first.
+Make a Secret first.
 
 Gitea:
 
@@ -29,7 +29,7 @@ kubectl create secret generic jumi-secrets \
   --from-literal=DATABASE_URL=postgres://jumi:password@postgres.example:5432/jumi
 ```
 
-GitHub (your own App, not anyone else's):
+GitHub (your own App):
 
 ```bash
 kubectl create secret generic jumi-secrets \
@@ -51,9 +51,9 @@ helm install jumi ./charts/jumi \
   --set gitea.allowedOrgs=your-org
 ```
 
-`gitea.allowedOrgs` is required. If you leave it unset, the image allowlists `kirmanak`.
+`gitea.url` and `gitea.allowedOrgs` are required.
 
-`opencode.wellKnownUrl` defaults to `disabled`. If you clear it, the image fetches `https://kirmanak.stream`. Set it only if you run your own well-known endpoint.
+Leave `opencode.wellKnownUrl` at `disabled` unless you run your own endpoint.
 
 GitHub instead of Gitea:
 
@@ -65,7 +65,7 @@ helm install jumi ./charts/jumi \
   --set github.allowedOrgs=your-org
 ```
 
-Create the App yourself. Put the PEM in the Secret. This chart does not install a shared App, and a webhook must hit your router, not someone else's factory.
+`github.appId` and `github.allowedOrgs` are required. Create the App yourself. Put the PEM in the Secret.
 
 Bundled Postgres:
 
@@ -77,13 +77,11 @@ helm install jumi ./charts/jumi \
   --set postgres.enabled=true
 ```
 
-Ingress is off unless you set `ingress.enabled`, `ingress.host`, and your own class. No default annotations.
-
-OCI (`oci://ghcr.io/jumi-ai/charts/jumi`) is published only when a `jumi-vX.Y.Z` tag matches `Chart.yaml` `version`. It is not published at chart `0.1.0` until that tag exists.
+Ingress is off unless you set `ingress.enabled`, `ingress.host`, and your own class. Set ingress.className yourself.
 
 ## Auth volume
 
-Engine and worker mount an empty PVC at `/data` (`HOME`). The chart does not seed it. Copy your OpenCode auth in as uid 10001:
+Engine and worker mount an empty PVC at `/data` (`HOME`). You copy auth.json onto the PVC. Copy your OpenCode auth in as uid 10001:
 
 ```text
 /data/.local/share/opencode/auth.json

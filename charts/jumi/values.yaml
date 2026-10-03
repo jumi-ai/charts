@@ -1,7 +1,3 @@
-# Public install chart. Not a homelab wrapper.
-# Images still publish under ghcr.io/kirmanak until the app repo moves.
-# Do not point these at a cluster hostname.
-
 nameOverride: ""
 fullnameOverride: ""
 
@@ -22,7 +18,7 @@ imagePullSecrets: []
 forge: gitea
 
 secret:
-  # Required. The chart does not create tokens.
+  # Required.
   existingSecret: ""
   giteaTokenKey: GITEA_BOT_TOKEN
   giteaWebhookKey: GITEA_WEBHOOK_SECRET
@@ -32,7 +28,7 @@ secret:
 
 gitea:
   url: ""
-  # Required. The image defaults this to kirmanak when unset.
+  # Required.
   allowedOrgs: ""
   allowedRepos: ""
   botUsername: jumi
@@ -45,8 +41,7 @@ github:
   allowedRepos: ""
   botUsername: jumi
 
-# Empty string makes the image fetch https://kirmanak.stream. Keep disabled
-# unless the installer runs their own well-known endpoint.
+# Disabled unless you run your own endpoint.
 opencode:
   wellKnownUrl: disabled
   model: ""

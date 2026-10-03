@@ -52,24 +52,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- define "jumi.validate" -}}
 {{- if not .Values.secret.existingSecret }}
-{{- fail "secret.existingSecret is required. The chart does not create forge tokens." }}
+{{- fail "secret.existingSecret is required." }}
 {{- end }}
 {{- if not .Values.opencode.wellKnownUrl }}
-{{- fail "opencode.wellKnownUrl must be set. Empty makes the image fetch https://kirmanak.stream. Use disabled." }}
+{{- fail "opencode.wellKnownUrl must be set. Use disabled unless you run your own well-known endpoint." }}
 {{- end }}
 {{- if eq .Values.forge "gitea" }}
 {{- if not .Values.gitea.url }}
 {{- fail "gitea.url is required when forge=gitea" }}
 {{- end }}
 {{- if not .Values.gitea.allowedOrgs }}
-{{- fail "gitea.allowedOrgs is required. The image defaults it to kirmanak when unset." }}
+{{- fail "gitea.allowedOrgs is required." }}
 {{- end }}
 {{- else if eq .Values.forge "github" }}
 {{- if not .Values.github.url }}
 {{- fail "github.url is required when forge=github" }}
 {{- end }}
 {{- if not .Values.github.appId }}
-{{- fail "github.appId is required when forge=github. Create your own GitHub App. This chart does not ship one." }}
+{{- fail "github.appId is required when forge=github. Create your own GitHub App." }}
 {{- end }}
 {{- if not .Values.github.allowedOrgs }}
 {{- fail "github.allowedOrgs is required when forge=github" }}

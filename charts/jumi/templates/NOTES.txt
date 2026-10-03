@@ -1,5 +1,5 @@
 {{- include "jumi.validate" . }}
-Jumi {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is pods and wiring. It does not grant a model and it does not create a GitHub App.
+Jumi {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is pods and wiring.
 
 Forge hook path: /webhooks/{{ .Values.forge }}
 {{- if .Values.ingress.enabled }}
