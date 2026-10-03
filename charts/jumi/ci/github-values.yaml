@@ -1,0 +1,7 @@
+forge: github
+secret:
+  existingSecret: jumi-secrets
+github:
+  url: https://github.com
+  appId: "1"
+  allowedOrgs: example-org

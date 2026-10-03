@@ -1,0 +1,22 @@
+{{- include "jumi.validate" . }}
+Jumi {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is pods and wiring. It does not grant a model and it does not create a GitHub App.
+
+Forge hook path: /webhooks/{{ .Values.forge }}
+{{- if .Values.ingress.enabled }}
+Point the hook at https://{{ .Values.ingress.host }}/webhooks/{{ .Values.forge }}
+{{- else }}
+Ingress is off. Publish only the router Service (port {{ .Values.router.service.port }}). Do not expose the engine or the worker.
+{{- end }}
+
+Engine and worker mount an empty PVC at /data (HOME). Seed OpenCode auth yourself, as uid 10001:
+
+  /data/.local/share/opencode/auth.json
+
+Until that file exists the pods start and reviews do not.
+{{- if .Values.postgres.enabled }}
+
+Bundled Postgres is on. The password key {{ .Values.postgres.auth.passwordKey }} in {{ include "jumi.postgresSecret" . }} must be URL-safe (@ : / break DATABASE_URL).
+{{- else }}
+
+DATABASE_URL comes from secret {{ .Values.secret.existingSecret }} key {{ .Values.secret.databaseUrlKey }}.
+{{- end }}
