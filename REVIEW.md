@@ -23,3 +23,14 @@ Review notes for this repository. Each section heading is a comma-separated list
 ## charts/jumi/Chart.yaml, charts/jumi/values.yaml, charts/jumi/templates/_helpers.tpl, charts/jumi/README.md
 
 - An image tag of v plus Chart.appVersion looks fine. A tag that drops the v is wrong. Compare charts/jumi/templates/_helpers.tpl jumi.image to charts/jumi/Chart.yaml appVersion.
+- A tag of vX.Y.Z@sha256:... looks fine. A helper that drops the digest is wrong. Compare charts/jumi/templates/_helpers.tpl jumi.image to a render that sets that tag.
+
+## .github/workflows/chart.yml
+
+- A publish job that runs only on a jumi-v* tag, pushes the OCI chart, and opens a GitHub Release looks fine. A publish job on pull_request, or a job that skips the Release, is wrong. Compare the publish if to the gh release create step.
+- contents: write on the publish job looks fine. contents: write on the lint job is wrong.
+
+## charts/jumi/values.yaml, charts/jumi/templates/deployments.yaml, charts/jumi/templates/configmap.yaml
+
+- config.files: {} looks fine. A default runners.json, or JUMI_RUNNERS_FILE on the router, is wrong. Compare charts/jumi/values.yaml config.files to the runners env in charts/jumi/templates/deployments.yaml.
+- extraEnvFrom: [] looks fine. A default secret name is wrong.

@@ -19,6 +19,9 @@ render gitea -f "$chart/ci/gitea-values.yaml"
 render github -f "$chart/ci/github-values.yaml"
 render postgres -f "$chart/ci/postgres-values.yaml"
 render ingress -f "$chart/ci/ingress-values.yaml"
+render overlay -f "$chart/ci/overlay-values.yaml"
+render digest -f "$chart/ci/gitea-values.yaml" \
+  --set image.reviewer.tag=v7.2.2@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 if helm template jumi "$chart" \
   --set secret.existingSecret=jumi-secrets \
@@ -57,6 +60,8 @@ if "ghcr.io/kirmanak/jumi-reviewer:v7.2.2" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
 if "ghcr.io/kirmanak/jumi-worker:v7.2.2" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
+if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
+    raise SystemExit("default gitea render leaked overlay config")
 if gitea.count("name: JUMI_ROLE") != 2:
     raise SystemExit("JUMI_ROLE must be set on router and engine only")
 if "GITHUB_APP_PRIVATE_KEY" in gitea:
@@ -77,5 +82,20 @@ if "$(POSTGRES_PASSWORD)" not in postgres or "pg_isready" not in postgres:
 ingress = (work / "ingress.yaml").read_text()
 if "kind: Ingress" not in ingress or "jumi.example" not in ingress:
     raise SystemExit("ingress render missing host")
+
+overlay = (work / "overlay.yaml").read_text()
+if overlay.count("name: JUMI_RUNNERS_FILE") != 2:
+    raise SystemExit("JUMI_RUNNERS_FILE must be set on engine and worker only")
+if "extra-secrets" not in overlay or "runners.json" not in overlay:
+    raise SystemExit("overlay render missing extra secret or runners file")
+if 'app.kubernetes.io/component: router' in overlay and "JUMI_RUNNERS_FILE" in overlay.split("app.kubernetes.io/component: engine")[0]:
+    raise SystemExit("router must not get JUMI_RUNNERS_FILE")
+
+digest = (work / "digest.yaml").read_text()
+pin = "ghcr.io/kirmanak/jumi-reviewer:v7.2.2@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+if pin not in digest:
+    raise SystemExit("digest pin was dropped")
+if "***" in (work / "postgres.yaml").read_text():
+    raise SystemExit("bundled postgres URL has a literal placeholder")
 print("render-check ok")
 PY

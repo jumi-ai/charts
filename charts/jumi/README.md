@@ -42,6 +42,17 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 
 ## Install
 
+From the packaged chart:
+
+```bash
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.1.0 \
+  --set secret.existingSecret=jumi-secrets \
+  --set gitea.url=https://gitea.example \
+  --set gitea.allowedOrgs=your-org
+```
+
+That package is published by the `jumi-v` tag.
+
 From a checkout:
 
 ```bash
@@ -54,6 +65,12 @@ helm install jumi ./charts/jumi \
 `gitea.url` and `gitea.allowedOrgs` are required.
 
 Leave `opencode.wellKnownUrl` at `disabled` unless you run your own endpoint.
+
+Pin an image with `image.reviewer.tag` or `image.worker.tag` set to `vX.Y.Z@sha256:...`. Empty uses `v` plus `Chart.appVersion`.
+
+`extraEnv` adds environment variables. `extraEnvFrom` loads extra Secrets. `config.files` mounts files at `/config`. A file named `runners.json` sets `JUMI_RUNNERS_FILE` on the engine and the worker.
+
+Bring Postgres by putting `DATABASE_URL` in the Secret. `postgres.enabled` starts a bundled database instead.
 
 GitHub instead of Gitea:
 

@@ -4,7 +4,7 @@ fullnameOverride: ""
 image:
   reviewer:
     repository: ghcr.io/kirmanak/jumi-reviewer
-    # Empty uses Chart.appVersion.
+    # Empty uses Chart.appVersion. A pin is vX.Y.Z@sha256:...
     tag: ""
     pullPolicy: IfNotPresent
   worker:
@@ -47,6 +47,13 @@ opencode:
   model: ""
 
 extraEnv: []
+
+# Extra Secrets as env. Use this for tokens.
+extraEnvFrom: []
+
+config:
+  # Files mounted at /config. runners.json sets JUMI_RUNNERS_FILE on engine and worker.
+  files: {}
 
 database:
   # Used only when postgres.enabled is false. Key lives in secret.existingSecret.

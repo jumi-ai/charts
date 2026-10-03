@@ -78,6 +78,14 @@ spec:
             {{- end }}
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.forgeEnv" $root | nindent 12 }}
+            {{- if and (ne .role "router") (hasKey ($root.Values.config.files | default dict) "runners.json") }}
+            - name: JUMI_RUNNERS_FILE
+              value: /config/runners.json
+            {{- end }}
+          {{- with $root.Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz
@@ -104,11 +112,21 @@ spec:
               mountPath: /work
             - name: data
               mountPath: /data
+            {{- if $root.Values.config.files }}
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
         - name: work
           emptyDir: {}
+        {{- if $root.Values.config.files }}
+        - name: config
+          configMap:
+            name: {{ include "jumi.fullname" $root }}-config
+        {{- end }}
         - name: data
           {{- if eq .data "pvc" }}
           persistentVolumeClaim:
