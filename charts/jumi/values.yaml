@@ -1,0 +1,142 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  reviewer:
+    repository: ghcr.io/kirmanak/jumi-reviewer
+    # Empty uses Chart.appVersion. A pin is vX.Y.Z@sha256:...
+    tag: ""
+    pullPolicy: IfNotPresent
+  worker:
+    repository: ghcr.io/kirmanak/jumi-worker
+    tag: ""
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# gitea (default) or github. GitHub means the installer creates their own App.
+forge: gitea
+
+secret:
+  # Required.
+  existingSecret: ""
+  giteaTokenKey: GITEA_BOT_TOKEN
+  giteaWebhookKey: GITEA_WEBHOOK_SECRET
+  githubPrivateKeyKey: GITHUB_APP_PRIVATE_KEY
+  githubWebhookKey: GITHUB_WEBHOOK_SECRET
+  databaseUrlKey: DATABASE_URL
+
+gitea:
+  url: ""
+  # Required.
+  allowedOrgs: ""
+  allowedRepos: ""
+  botUsername: jumi
+
+github:
+  url: https://github.com
+  appId: ""
+  installationId: ""
+  allowedOrgs: ""
+  allowedRepos: ""
+  botUsername: jumi
+
+# Disabled unless you run your own endpoint.
+opencode:
+  wellKnownUrl: disabled
+  model: ""
+
+extraEnv: []
+
+# Extra Secrets as env. Use this for tokens.
+extraEnvFrom: []
+
+config:
+  # Files mounted at /config. runners.json sets JUMI_RUNNERS_FILE on engine and worker.
+  files: {}
+
+database:
+  # Key lives in secret.existingSecret.
+
+postgres:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "18-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: jumi
+    database: jumi
+    # Empty uses secret.existingSecret. Password must be URL-safe.
+    existingSecret: ""
+    passwordKey: postgres-password
+  persistence:
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+router:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+engine:
+  replicas: 1
+  persistence:
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 8Gi
+
+worker:
+  replicas: 1
+  persistence:
+    size: 5Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 8Gi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

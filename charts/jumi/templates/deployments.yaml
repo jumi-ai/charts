@@ -1,0 +1,137 @@
+{{- $root := . }}
+{{- $components := list
+  (dict "name" "router" "role" "router" "image" "reviewer" "script" "src/server.ts" "data" "empty" "replicas" .Values.router.replicas "resources" .Values.router.resources)
+  (dict "name" "engine" "role" "engine" "image" "reviewer" "script" "src/server.ts" "data" "pvc" "replicas" .Values.engine.replicas "resources" .Values.engine.resources)
+  (dict "name" "worker" "role" "" "image" "worker" "script" "src/worker_server.ts" "data" "pvc" "replicas" .Values.worker.replicas "resources" .Values.worker.resources)
+}}
+{{- range $components }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jumi.fullname" $root }}-{{ .name }}
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+spec:
+  replicas: {{ .replicas }}
+  selector:
+    matchLabels:
+      {{- include "jumi.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ .name }}
+  template:
+    metadata:
+      labels:
+        {{- include "jumi.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ .name }}
+    spec:
+      serviceAccountName: {{ include "jumi.fullname" $root }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "jumi.podSecurityContext" $root | nindent 8 }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.postgres.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ include "jumi.image" (dict "root" $root "repository" $root.Values.image.reviewer.repository "tag" $root.Values.image.reviewer.tag) }}
+          imagePullPolicy: {{ $root.Values.image.reviewer.pullPolicy }}
+          securityContext:
+            {{- include "jumi.containerSecurityContext" $root | nindent 12 }}
+          command:
+            - python3
+            - -c
+            - |
+              import socket, sys, time
+              host, port = sys.argv[1], int(sys.argv[2])
+              for _ in range(60):
+                  try:
+                      socket.create_connection((host, port), 2).close()
+                      sys.exit(0)
+                  except OSError:
+                      time.sleep(2)
+              sys.exit(1)
+            - {{ include "jumi.postgresHost" $root }}
+            - "5432"
+      {{- end }}
+      containers:
+        - name: jumi
+          image: {{ include "jumi.image" (dict "root" $root "repository" (index $root.Values.image .image "repository") "tag" (index $root.Values.image .image "tag")) }}
+          imagePullPolicy: {{ index $root.Values.image .image "pullPolicy" }}
+          args:
+            - bun
+            - run
+            - {{ .script }}
+          securityContext:
+            {{- include "jumi.containerSecurityContext" $root | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            {{- if .role }}
+            - name: JUMI_ROLE
+              value: {{ .role }}
+            {{- end }}
+            {{- include "jumi.databaseEnv" $root | nindent 12 }}
+            {{- include "jumi.forgeEnv" $root | nindent 12 }}
+            {{- if and (ne .role "router") (hasKey ($root.Values.config.files | default dict) "runners.json") }}
+            - name: JUMI_RUNNERS_FILE
+              value: /config/runners.json
+            {{- end }}
+          {{- with $root.Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: work
+              mountPath: /work
+            - name: data
+              mountPath: /data
+            {{- if $root.Values.config.files }}
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: work
+          emptyDir: {}
+        {{- if $root.Values.config.files }}
+        - name: config
+          configMap:
+            name: {{ include "jumi.fullname" $root }}-config
+        {{- end }}
+        - name: data
+          {{- if eq .data "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ include "jumi.fullname" $root }}-{{ .name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

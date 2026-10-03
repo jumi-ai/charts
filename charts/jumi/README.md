@@ -1,0 +1,123 @@
+# jumi
+
+Helm chart for a self-hosted Jumi control plane.
+
+It installs a router, an engine, a worker, and optional Postgres.
+
+Chart `0.1.0` is tested against image tag `v7.2.2`. Images are `ghcr.io/kirmanak/jumi-reviewer` and `ghcr.io/kirmanak/jumi-worker`.
+
+## What you get
+
+- **router** — the only public webhook. Reviewer image, `JUMI_ROLE=router`.
+- **engine** — reviews. Reviewer image, `JUMI_ROLE=engine`. PVC at `/data`.
+- **worker** — implement / follow-up / conflict. Worker image. PVC at `/data`.
+- Optional bundled Postgres. Otherwise you bring `DATABASE_URL`.
+
+Replicas stay at 1. Engine and worker each have one RWO volume and need their own OpenCode login.
+
+## Secret
+
+Make a Secret first.
+
+Gitea:
+
+```bash
+kubectl create secret generic jumi-secrets \
+  --from-literal=GITEA_BOT_TOKEN=... \
+  --from-literal=GITEA_WEBHOOK_SECRET=... \
+  --from-literal=DATABASE_URL=postgres://jumi:password@postgres.example:5432/jumi
+```
+
+GitHub (your own App):
+
+```bash
+kubectl create secret generic jumi-secrets \
+  --from-file=GITHUB_APP_PRIVATE_KEY=./app.pem \
+  --from-literal=GITHUB_WEBHOOK_SECRET=... \
+  --from-literal=DATABASE_URL=postgres://jumi:password@postgres.example:5432/jumi
+```
+
+Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that same Secret. The password must be URL-safe. `@`, `:`, and `/` break the URL the chart builds.
+
+## Install
+
+From the packaged chart:
+
+```bash
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.1.0 \
+  --set secret.existingSecret=jumi-secrets \
+  --set gitea.url=https://gitea.example \
+  --set gitea.allowedOrgs=your-org
+```
+
+That package is published by the `jumi-v` tag.
+
+From a checkout:
+
+```bash
+helm install jumi ./charts/jumi \
+  --set secret.existingSecret=jumi-secrets \
+  --set gitea.url=https://gitea.example \
+  --set gitea.allowedOrgs=your-org
+```
+
+`gitea.url` and `gitea.allowedOrgs` are required.
+
+Leave `opencode.wellKnownUrl` at `disabled` unless you run your own endpoint.
+
+Pin an image with `image.reviewer.tag` or `image.worker.tag` set to `vX.Y.Z@sha256:...`. Empty uses `v` plus `Chart.appVersion`.
+
+`extraEnv` adds environment variables. `extraEnvFrom` loads extra Secrets. `config.files` mounts files at `/config`. A file named `runners.json` sets `JUMI_RUNNERS_FILE` on the engine and the worker.
+
+Bring Postgres by putting `DATABASE_URL` in the Secret. `postgres.enabled` starts a bundled database instead.
+
+GitHub instead of Gitea:
+
+```bash
+helm install jumi ./charts/jumi \
+  --set forge=github \
+  --set secret.existingSecret=jumi-secrets \
+  --set github.appId=123456 \
+  --set github.allowedOrgs=your-org
+```
+
+`github.appId` and `github.allowedOrgs` are required. Create the App yourself. Put the PEM in the Secret.
+
+Bundled Postgres:
+
+```bash
+helm install jumi ./charts/jumi \
+  --set secret.existingSecret=jumi-secrets \
+  --set gitea.url=https://gitea.example \
+  --set gitea.allowedOrgs=your-org \
+  --set postgres.enabled=true
+```
+
+Set `ingress.enabled`, `ingress.host`, and `ingress.className` to publish the router.
+
+## Auth volume
+
+Engine and worker mount an empty PVC at `/data` (`HOME`). You copy auth.json onto the PVC. Copy your OpenCode auth in as uid 10001:
+
+```text
+/data/.local/share/opencode/auth.json
+```
+
+Until that file exists the pods can start and still not review anything.
+
+## Hook
+
+Point the forge hook at the router only.
+
+- Gitea: `https://<ingress>/webhooks/gitea`
+- GitHub: `https://<ingress>/webhooks/github`
+
+Enable the events the app README lists.
+
+## Resources
+
+Router is a mailbox (`128Mi` request, `512Mi` limit). Engine and worker request `512Mi` and limit at `8Gi` so a review can burst. Raise it if the engine is OOMKilled.
+
+## License
+
+MIT. See the repository `LICENSE`.

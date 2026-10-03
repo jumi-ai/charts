@@ -1,0 +1,12 @@
+secret:
+  existingSecret: jumi-secrets
+gitea:
+  url: https://gitea.example
+  allowedOrgs: example-org
+extraEnvFrom:
+  - secretRef:
+      name: extra-secrets
+config:
+  files:
+    runners.json: |
+      {"chain":[]}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "forge": {
+      "type": "string",
+      "enum": ["gitea", "github"]
+    },
+    "opencode": {
+      "type": "object",
+      "properties": {
+        "wellKnownUrl": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "router": {
+      "type": "object",
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+      }
+    }
+  }
+}
