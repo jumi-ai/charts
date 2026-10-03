@@ -2,17 +2,16 @@
 
 Helm chart for a self-hosted Jumi control plane.
 
-It installs a router, an engine, a worker, and optional Postgres. Ingress is off unless enabled, and then only to the router.
+It installs a router, an engine, a worker, and optional Postgres.
 
 Chart `0.1.0` is tested against image tag `v7.2.2`. Images are `ghcr.io/kirmanak/jumi-reviewer` and `ghcr.io/kirmanak/jumi-worker`.
 
 ## What you get
 
-- **router** — the only public webhook. Reviewer image, `JUMI_ROLE=router`. The router does not mount /data.
+- **router** — the only public webhook. Reviewer image, `JUMI_ROLE=router`.
 - **engine** — reviews. Reviewer image, `JUMI_ROLE=engine`. PVC at `/data`.
 - **worker** — implement / follow-up / conflict. Worker image. PVC at `/data`.
 - Optional bundled Postgres. Otherwise you bring `DATABASE_URL`.
-- Ingress is off unless enabled, and then only to the router.
 
 Replicas stay at 1. Engine and worker each have one RWO volume and need their own OpenCode login.
 
@@ -94,7 +93,7 @@ helm install jumi ./charts/jumi \
   --set postgres.enabled=true
 ```
 
-Ingress is off unless you set `ingress.enabled`, `ingress.host`, and your own class. Set ingress.className yourself.
+Set `ingress.enabled`, `ingress.host`, and `ingress.className` to publish the router.
 
 ## Auth volume
 
@@ -113,11 +112,11 @@ Point the forge hook at the router only.
 - Gitea: `https://<ingress>/webhooks/gitea`
 - GitHub: `https://<ingress>/webhooks/github`
 
-Enable the events the app README lists. Do not point the hook at a worker pod.
+Enable the events the app README lists.
 
 ## Resources
 
-Router is a mailbox (`128Mi` request, `512Mi` limit). Engine and worker request `512Mi` and limit at `8Gi` so a review can burst. That limit is a starting cap, not a measurement from your cluster. Raise it if the engine is OOMKilled.
+Router is a mailbox (`128Mi` request, `512Mi` limit). Engine and worker request `512Mi` and limit at `8Gi` so a review can burst. Raise it if the engine is OOMKilled.
 
 ## License
 

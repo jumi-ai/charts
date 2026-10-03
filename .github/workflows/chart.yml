@@ -58,7 +58,6 @@ jobs:
             --title "jumi ${version}" \
             --notes "$(printf 'Helm chart jumi %s.\n\n```bash\nhelm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version %s\n```\n' "$version" "$version")"
       - name: Make the chart package public
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -56,7 +56,7 @@ config:
   files: {}
 
 database:
-  # Used only when postgres.enabled is false. Key lives in secret.existingSecret.
+  # Key lives in secret.existingSecret.
 
 postgres:
   enabled: false
