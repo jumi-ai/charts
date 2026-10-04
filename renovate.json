@@ -1,0 +1,52 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "ignorePresets": ["mergeConfidence:age-confidence-badges"],
+  "prCreation": "immediate",
+  "minimumReleaseAge": "3 days",
+  "automerge": false,
+  "platformAutomerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Helm CLI version in the CI download URL. Every job downloads the same version, so all matches move in one pull.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "https://get\\.helm\\.sh/helm-(?<currentValue>v\\d+\\.\\d+\\.\\d+)-linux-amd64\\.tar\\.gz"
+      ],
+      "depNameTemplate": "helm",
+      "packageNameTemplate": "helm/helm",
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Actions stay pinned to a commit with a version comment.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "pinDigests": true
+    },
+    {
+      "description": "Chart values are what an install pulls and only change with a signed chart tag. Do not pin a digest into them.",
+      "matchManagers": ["helm-values"],
+      "pinDigests": false
+    },
+    {
+      "description": "Same contract by update type: no pin, digest pin, or digest bump pull against chart values.",
+      "matchManagers": ["helm-values"],
+      "matchUpdateTypes": ["pin", "pinDigest", "digest"],
+      "enabled": false
+    },
+    {
+      "description": "Reviewer and worker tags are empty on purpose: the install uses v plus Chart.appVersion. A human moves them with a tested chart release.",
+      "matchPackageNames": ["/(^|/)jumi-(reviewer|worker)$/"],
+      "enabled": false
+    },
+    {
+      "description": "Bundled Postgres floats on 18-alpine. Stay on the 18 line.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "allowedVersions": "/^18([.-]|$)/"
+    }
+  ]
+}
