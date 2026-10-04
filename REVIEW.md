@@ -38,6 +38,7 @@ Review notes for this repository. Each section heading is a comma-separated list
 ## renovate.json, .github/workflows/chart.yml, charts/jumi/values.yaml, charts/jumi/Chart.yaml
 
 - A bump that moves both Helm CLI download URLs in one pull looks fine. A bump that moves one, or a swap to a setup action, is wrong. Compare the two Install Helm steps to the customManagers matchStrings in renovate.json.
+- A Helm CLI bump that stays on v3 looks fine. A bump of those URLs to v4 is wrong, because pull CI only lints and the publish job's helm package, helm registry login, and helm push would first run on a signed tag. Compare the download URLs to the helm allowedVersions in the packageRules in renovate.json.
 - A checkout bump that moves the commit and the version comment together looks fine. A bare tag is wrong.
 - An empty image.reviewer.tag and image.worker.tag, and a postgres tag of 18-alpine with no digest, look fine. A bot pull that fills a tag, adds a digest, leaves the 18 line, or bumps appVersion is wrong. Compare charts/jumi/values.yaml to the packageRules in renovate.json.
 - config:recommended with automerge off looks fine. config:best-practices, automerge, ignoreTests, a schedule, or dryRun in renovate.json is wrong.

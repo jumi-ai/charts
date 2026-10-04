@@ -21,6 +21,14 @@
   ],
   "packageRules": [
     {
+      "description": "Helm CLI stays on the 3.x line. Pull CI only lints, so package, registry login, and push would first meet a new major on a signed tag. A human moves the major after running the publish commands.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["helm"],
+      "matchPackageNames": ["helm/helm"],
+      "allowedVersions": "/^v3\\./"
+    },
+    {
       "description": "Actions stay pinned to a commit with a version comment.",
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
