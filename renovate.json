@@ -3,6 +3,7 @@
   "extends": ["config:recommended"],
   "ignorePresets": ["mergeConfidence:age-confidence-badges"],
   "prCreation": "immediate",
+  "addLabels": ["jumi", "ignore-conflicts"],
   "minimumReleaseAge": "3 days",
   "automerge": false,
   "platformAutomerge": false,
