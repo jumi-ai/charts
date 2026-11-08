@@ -1,0 +1,88 @@
+{{- $root := . }}
+{{- $ns := $root.Release.Namespace }}
+{{- $controlSA := include "jumi.controlSA" $root }}
+{{- $jobSA := include "jumi.jobSA" $root }}
+{{- $reviewer := $root.Values.image.reviewer.repository }}
+{{- $worker := $root.Values.image.worker.repository }}
+{{- $secrets := include "jumi.jobSecretNames" $root }}
+{{- $cms := include "jumi.jobConfigMapNames" $root }}
+{{- $scs := include "jumi.jobStorageClasses" $root }}
+{{- $policy := include "jumi.policyName" $root }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $policy }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  matchConditions:
+    - name: from-control-sa
+      expression: >-
+        request.userInfo.username == '{{ printf "system:serviceaccount:%s:%s" $ns $controlSA }}'
+  validations:
+    - message: image repository must match allowlist with tag or digest
+      expression: >-
+        object.spec.template.spec.containers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }})))
+    - message: init image must use a chart image
+      expression: >-
+        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }})))
+    - message: job serviceAccountName is not the chart job account
+      expression: >-
+        object.spec.template.spec.serviceAccountName == {{ $jobSA | quote }}
+    - message: automountServiceAccountToken must be false
+      expression: >-
+        object.spec.template.spec.automountServiceAccountToken == false
+    - message: hostNetwork hostPID hostIPC must be false
+      expression: >-
+        (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) && (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) && (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false)
+    - message: pod must run as 10001 with RuntimeDefault seccomp
+      expression: >-
+        has(object.spec.template.spec.securityContext) && object.spec.template.spec.securityContext.runAsNonRoot == true && object.spec.template.spec.securityContext.runAsUser == 10001 && object.spec.template.spec.securityContext.runAsGroup == 10001 && has(object.spec.template.spec.securityContext.seccompProfile) && object.spec.template.spec.securityContext.seccompProfile.type == 'RuntimeDefault'
+    - message: containers must use the restricted security context
+      expression: >-
+        object.spec.template.spec.containers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == 'RuntimeDefault')
+    - message: initContainers must use the restricted security context
+      expression: >-
+        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (!has(c.securityContext) || (has(c.securityContext.allowPrivilegeEscalation) ? c.securityContext.allowPrivilegeEscalation == false : true)) && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0)))
+    - message: volumes must be emptyDir, ephemeral, or an allowlisted Secret or ConfigMap
+      expression: >-
+        object.spec.template.spec.volumes.all(v, has(v.emptyDir) || (has(v.ephemeral) && has(v.ephemeral.volumeClaimTemplate) && has(v.ephemeral.volumeClaimTemplate.spec) && has(v.ephemeral.volumeClaimTemplate.spec.accessModes) && 'ReadWriteOnce' in v.ephemeral.volumeClaimTemplate.spec.accessModes && (!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) || v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}) && (!has(v.ephemeral.volumeClaimTemplate.spec.volumeName) || v.ephemeral.volumeClaimTemplate.spec.volumeName == '') && !has(v.ephemeral.volumeClaimTemplate.spec.dataSource) && !has(v.ephemeral.volumeClaimTemplate.spec.selector)) || (has(v.secret) && v.secret.secretName in {{ $secrets }}) || (has(v.configMap) && v.configMap.name in {{ $cms }}))
+    - message: env secretKeyRef must reference an allowlisted Secret
+      expression: >-
+        object.spec.template.spec.containers.all(c, !has(c.env) || c.env.all(e, !has(e.valueFrom) || !has(e.valueFrom.secretKeyRef) || e.valueFrom.secretKeyRef.name in {{ $secrets }}))
+    - message: initContainer env secretKeyRef must reference an allowlisted Secret
+      expression: >-
+        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, !has(c.env) || c.env.all(e, !has(e.valueFrom) || !has(e.valueFrom.secretKeyRef) || e.valueFrom.secretKeyRef.name in {{ $secrets }})))
+    - message: envFrom secretRef must reference an allowlisted Secret
+      expression: >-
+        object.spec.template.spec.containers.all(c, !has(c.envFrom) || c.envFrom.all(ef, !has(ef.secretRef) || ef.secretRef.name in {{ $secrets }}))
+    - message: job must carry the chart role labels
+      expression: >-
+        has(object.metadata.labels) && has(object.metadata.labels['app.kubernetes.io/component']) && object.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker'] && has(object.metadata.labels['app.kubernetes.io/instance']) && object.metadata.labels['app.kubernetes.io/instance'] == {{ $root.Release.Name | quote }}
+    - message: job pods must carry the chart role labels
+      expression: >-
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && has(object.spec.template.metadata.labels['app.kubernetes.io/component']) && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
+    {{- if not (kindIs "invalid" $root.Values.jobs.engine.hostUsers) }}
+    - message: engine Jobs must set hostUsers consistently
+      expression: >-
+        object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.engine.hostUsers | toString }})
+    {{- end }}
+    {{- if not (kindIs "invalid" $root.Values.jobs.worker.hostUsers) }}
+    - message: worker Jobs must set hostUsers consistently
+      expression: >-
+        object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.worker.hostUsers | toString }})
+    {{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $policy }}
+spec:
+  policyName: {{ $policy }}
+  validationActions: [Deny]

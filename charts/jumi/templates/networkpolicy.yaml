@@ -1,0 +1,66 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "jumi.fullname" $root }}-router
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "jumi.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: router
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 3000
+          protocol: TCP
+{{- if $root.Values.router.board.enabled }}
+        - port: {{ $root.Values.router.board.port }}
+          protocol: TCP
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "jumi.fullname" $root }}-job
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: job
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [engine, worker]
+  policyTypes: [Ingress]
+  # No ingress rules: Jobs accept no ingress.
+{{- if $root.Values.codex.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "jumi.fullname" $root }}-control
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: control
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "jumi.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: control
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "jumi.selectorLabels" $root | nindent 14 }}
+              app.kubernetes.io/component: router
+      ports:
+        - port: 3010
+          protocol: TCP
+{{- end }}
+{{- end }}

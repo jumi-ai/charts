@@ -50,6 +50,26 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- printf "%s-postgres" (include "jumi.fullname" .) }}
 {{- end }}
 
+{{- define "jumi.controlSA" -}}
+{{- printf "%s-control" (include "jumi.fullname" .) }}
+{{- end }}
+
+{{- define "jumi.jobSA" -}}
+{{- printf "%s-job" (include "jumi.fullname" .) }}
+{{- end }}
+
+{{- define "jumi.codexSecretName" -}}
+{{- printf "%s-codex-token" (include "jumi.fullname" .) }}
+{{- end }}
+
+{{- define "jumi.jobNamespace" -}}
+{{- .Values.control.jobNamespace | default .Release.Namespace }}
+{{- end }}
+
+{{- define "jumi.policyName" -}}
+{{- printf "%s-%s-jobs" .Release.Namespace (include "jumi.fullname" .) | trunc 253 | trimSuffix "-" | lower }}
+{{- end }}
+
 {{- define "jumi.validate" -}}
 {{- if not .Values.secret.existingSecret }}
 {{- fail "secret.existingSecret is required." }}
@@ -85,11 +105,25 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- fail "ingress.tls.secretName is required when ingress.tls.enabled" }}
 {{- end }}
 {{- end }}
+{{- if .Values.router.board.ingress.enabled }}
+{{- if not .Values.router.board.enabled }}
+{{- fail "router.board.enabled must be true when router.board.ingress.enabled" }}
+{{- end }}
+{{- if not .Values.router.board.ingress.host }}
+{{- fail "router.board.ingress.host is required when router.board.ingress.enabled" }}
+{{- end }}
+{{- if and .Values.router.board.ingress.tls.enabled (not .Values.router.board.ingress.tls.secretName) }}
+{{- fail "router.board.ingress.tls.secretName is required when router.board.ingress.tls.enabled" }}
+{{- end }}
+{{- end }}
 {{- if gt (int .Values.router.replicas) 1 }}
 {{- fail "router.replicas must be 1" }}
 {{- end }}
-{{- if or (gt (int .Values.engine.replicas) 1) (gt (int .Values.worker.replicas) 1) }}
-{{- fail "engine.replicas and worker.replicas must be 1 (one RWO auth volume, one login per pod)" }}
+{{- if and .Values.control.dispatchEngine (lt (int .Values.control.engineMaxJobs) 1) }}
+{{- fail "control.engineMaxJobs must be at least 1 when control.dispatchEngine is true" }}
+{{- end }}
+{{- if and .Values.control.dispatchWorker (lt (int .Values.control.workerMaxJobs) 1) }}
+{{- fail "control.workerMaxJobs must be at least 1 when control.dispatchWorker is true" }}
 {{- end }}
 {{- end }}
 
@@ -171,9 +205,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 - name: OPENCODE_MODEL
   value: {{ .Values.opencode.model | quote }}
 {{- end }}
-{{- with .Values.extraEnv }}
-{{ toYaml . }}
-{{- end }}
 {{- end }}
 
 {{- define "jumi.podSecurityContext" -}}
@@ -182,4 +213,112 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- define "jumi.containerSecurityContext" -}}
 {{- toYaml .Values.containerSecurityContext }}
+{{- end }}
+
+{{/*
+All Secret names a Job template may reference. Derived from rendered values:
+existingSecret, the bundled-postgres Secret, jobs.extraEnvFrom secretRefs,
+secretKeyRefs in jobs.extraEnv, and the Codex token Secret when enabled.
+*/}}
+{{- define "jumi.jobSecretNames" -}}
+{{- $names := list .Values.secret.existingSecret }}
+{{- if .Values.postgres.enabled }}
+{{- $names = append $names (include "jumi.postgresSecret" .) }}
+{{- end }}
+{{- range .Values.jobs.extraEnvFrom }}
+{{- with .secretRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .Values.jobs.extraEnv }}
+{{- with .valueFrom }}{{ with .secretKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
+{{- range list .Values.jobs.engine .Values.jobs.worker }}
+{{- range .extraEnvFrom }}
+{{- with .secretRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .extraEnv }}
+{{- with .valueFrom }}{{ with .secretKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if .Values.codex.enabled }}
+{{- $names = append $names (include "jumi.codexSecretName" .) }}
+{{- end }}
+{{- $names | uniq | toJson }}
+{{- end }}
+
+{{/*
+All ConfigMap names a Job template may reference. Derived from rendered values:
+the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps.
+*/}}
+{{- define "jumi.jobConfigMapNames" -}}
+{{- $names := list }}
+{{- if or .Values.jobs.engine.runnersFile .Values.jobs.worker.runnersFile }}
+{{- $names = append $names (printf "%s-config" (include "jumi.fullname" .)) }}
+{{- end }}
+{{- range .Values.jobs.extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- range list .Values.jobs.engine .Values.jobs.worker }}
+{{- range .extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- $names | uniq | toJson }}
+{{- end }}
+
+{{- define "jumi.jobStorageClasses" -}}
+{{- $names := list }}
+{{- with .Values.jobs.engine.storageClass }}{{ $names = append $names . }}{{ end }}
+{{- with .Values.jobs.worker.storageClass }}{{ $names = append $names . }}{{ end }}
+{{- $names | uniq | toJson }}
+{{- end }}
+
+{{/*
+Forge env for one-shot Jobs. No webhook secrets: Jobs serve no HTTP.
+*/}}
+{{- define "jumi.jobForgeEnv" -}}
+{{- if eq .Values.forge "gitea" }}
+- name: FORGE
+  value: gitea
+- name: GITEA_URL
+  value: {{ .Values.gitea.url | quote }}
+- name: GITEA_ALLOWED_ORGS
+  value: {{ .Values.gitea.allowedOrgs | quote }}
+{{- if .Values.gitea.allowedRepos }}
+- name: GITEA_ALLOWED_REPOS
+  value: {{ .Values.gitea.allowedRepos | quote }}
+{{- end }}
+- name: BOT_USERNAME
+  value: {{ .Values.gitea.botUsername | quote }}
+- name: GITEA_BOT_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secret.existingSecret }}
+      key: {{ .Values.secret.giteaTokenKey }}
+{{- else }}
+- name: FORGE
+  value: github
+- name: FORGE_URL
+  value: {{ .Values.github.url | quote }}
+- name: GITHUB_APP_ID
+  value: {{ .Values.github.appId | toString | quote }}
+{{- if .Values.github.installationId }}
+- name: GITHUB_APP_INSTALLATION_ID
+  value: {{ .Values.github.installationId | toString | quote }}
+{{- end }}
+- name: GITHUB_ALLOWED_ORGS
+  value: {{ .Values.github.allowedOrgs | quote }}
+{{- if .Values.github.allowedRepos }}
+- name: GITHUB_ALLOWED_REPOS
+  value: {{ .Values.github.allowedRepos | quote }}
+{{- end }}
+- name: BOT_USERNAME
+  value: {{ .Values.github.botUsername | quote }}
+- name: GITHUB_APP_PRIVATE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secret.existingSecret }}
+      key: {{ .Values.secret.githubPrivateKeyKey }}
+{{- end }}
+- name: OPENCODE_WELLKNOWN_URL
+  value: {{ .Values.opencode.wellKnownUrl | quote }}
+{{- if .Values.opencode.model }}
+- name: OPENCODE_MODEL
+  value: {{ .Values.opencode.model | quote }}
+{{- end }}
 {{- end }}

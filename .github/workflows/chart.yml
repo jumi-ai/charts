@@ -13,6 +13,8 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Helm
@@ -24,6 +26,137 @@ jobs:
           helm version
       - name: Lint and render
         run: bash scripts/render-check.sh
+
+  contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Helm
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version
+      - name: Contract drift check
+        run: bash scripts/contract-check.sh
+
+  e2e:
+    if: github.event_name == 'pull_request'
+    needs: [lint, contract]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Helm
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+      - name: Create kind cluster
+        run: |
+          set -euo pipefail
+          kind create cluster --image kindest/node:v1.30.0 --wait 120s
+          kubectl cluster-info
+          kubectl api-resources | grep -E "ValidatingAdmissionPolicy"
+      - name: Install chart with bundled Postgres and Codex on
+        run: |
+          set -euo pipefail
+          kubectl create namespace jumi-ci
+          kubectl -n jumi-ci create secret generic jumi-secrets \
+            --from-literal=GITEA_BOT_TOKEN=dummy \
+            --from-literal=GITEA_WEBHOOK_SECRET=dummy \
+            --from-literal=DATABASE_URL=postgres://jumi:dummy@postgres:5432/jumi \
+            --from-literal=postgres-password=dummy-urlsafe-password
+          helm install jumi ./charts/jumi -n jumi-ci \
+            -f charts/jumi/ci/gitea-values.yaml \
+            --set postgres.enabled=true \
+            --set codex.enabled=true
+          kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
+          kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
+          kubectl -n jumi-ci wait --for=condition=ready pod -l app.kubernetes.io/component=control --timeout=300s
+      - name: Prove the admission policy
+        run: |
+          set -euo pipefail
+          kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.engine\\.json}" > /tmp/engine.json
+          kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.worker\\.json}" > /tmp/worker.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for name in ("engine", "worker"):
+              p = Path(f"/tmp/{name}.json")
+              job = json.loads(p.read_text())
+              job["metadata"]["name"] = f"e2e-{name}-ok"
+              p.write_text(json.dumps(job))
+              # variants, each violating exactly one rule
+              base = json.loads(p.read_text())
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-hostpath"
+              v["spec"]["template"]["spec"]["volumes"].append({"name": "bad", "hostPath": {"path": "/"}})
+              v["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad", "mountPath": "/bad"})
+              Path(f"/tmp/{name}-hostpath.json").write_text(json.dumps(v))
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-envfrom"
+              v["spec"]["template"]["spec"]["containers"][0].setdefault("envFrom", []).append({"secretRef": {"name": "not-allowlisted"}})
+              Path(f"/tmp/{name}-envfrom.json").write_text(json.dumps(v))
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-image"
+              v["spec"]["template"]["spec"]["containers"][0]["image"] = "ghcr.io/evil/other:latest"
+              Path(f"/tmp/{name}-image.json").write_text(json.dumps(v))
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-automount"
+              v["spec"]["template"]["spec"]["automountServiceAccountToken"] = True
+              Path(f"/tmp/{name}-automount.json").write_text(json.dumps(v))
+          PY
+          as_control="system:serviceaccount:jumi-ci:jumi-control"
+          kubectl create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
+          kubectl create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
+          for variant in hostpath envfrom image automount; do
+            for role in engine worker; do
+              if kubectl create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
+                echo "policy admitted ${role}-${variant} for control SA" >&2
+                exit 1
+              fi
+              grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|serviceAccount|automount|hostPath|secret|image" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
+            done
+          done
+          # same commands as a different user are not matched by the policy:
+          # no denial message from the policy itself
+          if kubectl create -f /tmp/engine.json --as="system:serviceaccount:jumi-ci:jumi-job" --dry-run=server -o name 2>/tmp/other.err; then
+            echo "unexpected admit for job SA (RBAC should deny)" >&2
+            exit 1
+          fi
+          if grep -i "ValidatingAdmissionPolicy" /tmp/other.err; then
+            echo "policy matched a different user" >&2
+            cat /tmp/other.err >&2
+            exit 1
+          fi
+      - name: Upgrade keeps the token Secret data
+        run: |
+          set -euo pipefail
+          kubectl -n jumi-ci patch secret jumi-codex-token -p '{"stringData":{"auth.json":"{\"e2e\":\"ok\"}"}}'
+          helm upgrade jumi ./charts/jumi -n jumi-ci \
+            -f charts/jumi/ci/gitea-values.yaml \
+            --set postgres.enabled=true \
+            --set codex.enabled=true
+          kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
+          got="$(kubectl -n jumi-ci get secret jumi-codex-token -o jsonpath='{.data.auth\.json}')"
+          if [ -z "$got" ]; then
+            echo "token Secret data did not survive helm upgrade" >&2
+            exit 1
+          fi
 
   publish:
     needs: lint

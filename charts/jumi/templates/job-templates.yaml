@@ -1,0 +1,14 @@
+{{- $root := . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "jumi.fullname" $root }}-jobs
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: control
+data:
+  engine.json: |
+{{ include "jumi.engineJobYaml" $root | fromYaml | toPrettyJson | nindent 4 }}
+  worker.json: |
+{{ include "jumi.workerJobYaml" $root | fromYaml | toPrettyJson | nindent 4 }}

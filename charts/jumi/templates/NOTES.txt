@@ -1,18 +1,29 @@
 {{- include "jumi.validate" . }}
-Jumi {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is pods and wiring.
+Jumi {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is router, control, and one-shot Jobs.
 
 Forge hook path: /webhooks/{{ .Values.forge }}
 {{- if .Values.ingress.enabled }}
 Point the hook at https://{{ .Values.ingress.host }}/webhooks/{{ .Values.forge }}
 {{- else }}
-Ingress is off. Publish only the router Service (port {{ .Values.router.service.port }}). Do not expose the engine or the worker.
+Ingress is off. Publish only the router Service (port {{ .Values.router.service.port }}). There is no standing engine or worker to expose.
+{{- end }}
+{{- if .Values.router.board.enabled }}
+
+Board port {{ .Values.router.board.port }} is on. Expose it only behind an auth proxy on a separate host, never on the webhook host.
+{{- if .Values.router.board.ingress.enabled }}
+Board URL: https://{{ .Values.router.board.ingress.host }}/
+{{- end }}
+{{- end }}
+{{- if .Values.codex.enabled }}
+
+Codex is on. Control keeps a retained claim at /data (the real Codex grant, never seeded). The token Secret {{ include "jumi.codexSecretName" . }} starts empty and control fills it; helm upgrade keeps its data.
+{{- else }}
+
+Codex is off. Control is diskless at /data and no token Secret is installed.
 {{- end }}
 
-Engine and worker mount an empty PVC at /data (HOME). Seed OpenCode auth yourself, as uid 10001:
+Control dispatches one Kubernetes Job per ledger row from /etc/jumi/jobs/engine.json (reviewer image) and worker.json (worker image).
 
-  /data/.local/share/opencode/auth.json
-
-Until that file exists the pods start and reviews do not.
 {{- if .Values.postgres.enabled }}
 
 Bundled Postgres is on. The password key {{ .Values.postgres.auth.passwordKey }} in {{ include "jumi.postgresSecret" . }} must be URL-safe (@ : / break DATABASE_URL).

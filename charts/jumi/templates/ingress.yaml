@@ -1,34 +1,74 @@
-{{- if .Values.ingress.enabled }}
+{{- $root := . }}
+{{- if $root.Values.ingress.enabled }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "jumi.fullname" . }}
+  name: {{ include "jumi.fullname" $root }}
   labels:
-    {{- include "jumi.labels" . | nindent 4 }}
+    {{- include "jumi.labels" $root | nindent 4 }}
     app.kubernetes.io/component: router
-  {{- with .Values.ingress.annotations }}
+  {{- with $root.Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with $root.Values.ingress.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- if .Values.ingress.tls.enabled }}
+  {{- if $root.Values.ingress.tls.enabled }}
   tls:
     - hosts:
-        - {{ .Values.ingress.host | quote }}
-      secretName: {{ .Values.ingress.tls.secretName }}
+        - {{ $root.Values.ingress.host | quote }}
+      secretName: {{ $root.Values.ingress.tls.secretName }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    - host: {{ $root.Values.ingress.host | quote }}
       http:
         paths:
-          - path: {{ .Values.ingress.path }}
-            pathType: {{ .Values.ingress.pathType }}
+          - path: {{ $root.Values.ingress.path }}
+            pathType: {{ $root.Values.ingress.pathType }}
             backend:
               service:
-                name: {{ include "jumi.fullname" . }}-router
+                name: {{ include "jumi.fullname" $root }}-router
                 port:
                   name: http
+{{- end }}
+{{- if and $root.Values.router.board.enabled $root.Values.router.board.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "jumi.fullname" $root }}-board
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: router
+  annotations:
+    {{- with $root.Values.router.board.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if not (hasKey $root.Values.router.board.ingress.annotations "nginx.ingress.kubernetes.io/auth-url") }}
+    jumi.ai/auth-proxy-required: "true"
+    {{- end }}
+spec:
+  {{- with $root.Values.router.board.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $root.Values.router.board.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $root.Values.router.board.ingress.host | quote }}
+      secretName: {{ $root.Values.router.board.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ $root.Values.router.board.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ $root.Values.router.board.ingress.path }}
+            pathType: {{ $root.Values.router.board.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "jumi.fullname" $root }}-board
+                port:
+                  name: board
 {{- end }}
