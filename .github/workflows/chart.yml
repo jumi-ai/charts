@@ -217,6 +217,66 @@ jobs:
             cat /tmp/other.err >&2
             exit 1
           fi
+      - name: Run one Job with disk-backed /tmp and secrets tmpfs
+        run: |
+          set -euo pipefail
+          as_control="system:serviceaccount:jumi-ci:jumi-control"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          job = json.loads(Path("/tmp/engine.json").read_text())
+          job["metadata"]["name"] = "e2e-engine-run"
+          Path("/tmp/e2e-engine-run.json").write_text(json.dumps(job))
+          PY
+          kubectl -n jumi-ci create -f /tmp/e2e-engine-run.json --as="$as_control"
+          # wait for the pod to be created and the container to start
+          # (Ready, Running, or terminated after start: the dummy row may exit fast)
+          for i in $(seq 1 60); do
+            pod="$(kubectl -n jumi-ci get pod -l job-name=e2e-engine-run -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            if [ -n "${pod:-}" ]; then
+              state="$(kubectl -n jumi-ci get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state}' 2>/dev/null || true)"
+              case "$state" in
+                *running*|*terminated*) echo "container started: $state"; break;;
+              esac
+            fi
+            sleep 5
+          done
+          pod="$(kubectl -n jumi-ci get pod -l job-name=e2e-engine-run -o jsonpath='{.items[0].metadata.name}')"
+          test -n "$pod"
+          echo "job pod: $pod"
+          # pod-spec proves /tmp is on the ephemeral claim and the secrets tmpfs is mounted
+          kubectl -n jumi-ci get pod "$pod" -o json | python3 -c "
+          import sys, json
+          pod = json.load(sys.stdin)
+          spec = pod['spec']
+          vols = {v['name']: v for v in spec.get('volumes', [])}
+          tmp = vols.get('tmp', {})
+          assert 'ephemeral' in tmp, 'job pod /tmp is not on the ephemeral claim'
+          storage = tmp['ephemeral']['volumeClaimTemplate']['spec']['resources']['requests']['storage']
+          assert storage.endswith('Gi'), f'job pod /tmp storage is {storage}'
+          sec = vols.get('secrets', {}).get('emptyDir', {})
+          assert sec.get('medium') == 'Memory' and sec.get('sizeLimit') == '1Mi', 'secrets volume is not 1Mi tmpfs'
+          c = next(c for c in spec['containers'] if c['name'] == 'jumi')
+          env = {e['name']: e.get('value') for e in c.get('env', [])}
+          assert env.get('JUMI_SECRETS_DIR') == '/run/jumi-secrets', 'JUMI_SECRETS_DIR not wired'
+          mounts = {m['mountPath']: m['name'] for m in c.get('volumeMounts', [])}
+          assert mounts.get('/tmp') == 'tmp', '/tmp mount missing'
+          assert mounts.get('/run/jumi-secrets') == 'secrets', '/run/jumi-secrets mount missing'
+          print('pod spec proves disk-backed /tmp + secrets tmpfs')
+          "
+          # the claim provisions a real PVC for the Job pod
+          kubectl -n jumi-ci get pvc | grep -q "e2e-engine-run"
+          # live checks while the container is still running
+          if kubectl -n jumi-ci get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' | grep -q .; then
+            kubectl -n jumi-ci exec "$pod" -- sh -c 'test "$JUMI_SECRETS_DIR" = /run/jumi-secrets'
+            kubectl -n jumi-ci exec "$pod" -- sh -c 'mount | grep " /run/jumi-secrets " | grep -q tmpfs'
+            kubectl -n jumi-ci exec "$pod" -- sh -c 'df -T /tmp | tail -1 | grep -qv " tmpfs "'
+            # the entrypoint's secrets file, when written, must live under /run/jumi-secrets, never /tmp
+            kubectl -n jumi-ci exec "$pod" -- sh -c 'ls -l /run/jumi-secrets || true; if ls /tmp | grep -qi secret; then echo "secrets file leaked onto /tmp" >&2; exit 1; fi'
+          else
+            echo "container already exited; pod-spec checks above prove /tmp claim + secrets tmpfs wiring"
+          fi
+          kubectl -n jumi-ci delete job e2e-engine-run --wait=false || true
       - name: Prove Codex control:3010 from the router pod
         run: |
           set -euo pipefail
@@ -233,7 +293,7 @@ jobs:
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable with networkPolicy')"
           # a Job-labelled pod must not reach control:3010 when the CNI enforces policy
-          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.4.0 \
+          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.5.1 \
             --labels="app.kubernetes.io/name=jumi,app.kubernetes.io/instance=jumi,app.kubernetes.io/component=engine" \
             --command -- sleep 60
           kubectl -n jumi-ci wait --for=condition=ready pod/e2e-denied --timeout=120s
@@ -259,15 +319,37 @@ jobs:
             exit 1
           fi
 
+  publish-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Publish dry-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(awk '/^version:/{print $2; exit}' charts/jumi/Chart.yaml)"
+          count="$(gh api "repos/${{ github.repository }}/git/matching-refs/tags/jumi-v${version}" --jq 'length')"
+          if [ "${count:-0}" = 0 ]; then
+            echo "would publish ${version}"
+          else
+            echo "would skip ${version} (tag jumi-v${version} exists)"
+          fi
+
   publish:
-    needs: lint
-    if: startsWith(github.ref, 'refs/tags/jumi-v')
+    needs: [lint, contract]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/jumi-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Install Helm
         run: |
           set -euo pipefail
@@ -288,23 +370,41 @@ jobs:
         run: |
           set -euo pipefail
           version="$(awk '/^version:/{print $2; exit}' charts/jumi/Chart.yaml)"
-          tag="${GITHUB_REF_NAME#jumi-v}"
-          if [ "$tag" != "$version" ]; then
-            echo "tag jumi-v${tag} does not match Chart.yaml version ${version}" >&2
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/jumi-v* ]]; then
+            tag="${GITHUB_REF_NAME#jumi-v}"
+            if [ "$tag" != "$version" ]; then
+              echo "tag jumi-v${tag} does not match Chart.yaml version ${version}" >&2
+              exit 1
+            fi
+            echo "tag push for ${version} (fallback path; skips push below when already published)"
+          else
+            # Push to main publishes only when this version has no tag yet.
+            if git rev-parse -q --verify "refs/tags/jumi-v${version}" >/dev/null; then
+              echo "tag jumi-v${version} already exists, nothing to publish"
+              exit 0
+            fi
+            echo "main push publishes ${version}"
+          fi
+          mkdir -p /tmp/oci-check
+          if helm pull "oci://ghcr.io/jumi-ai/charts/jumi" --version "$version" --destination /tmp/oci-check >/dev/null 2>&1; then
+            echo "OCI tag ${version} already exists, skipping push (not overwriting)"
+            skip_push=1
+          else
+            skip_push=0
           fi
           helm package charts/jumi
-          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          helm push "jumi-${version}.tgz" oci://ghcr.io/jumi-ai/charts
-          gh release create "jumi-v${version}" "jumi-${version}.tgz" \
-            --title "jumi ${version}" \
-            --notes "$(printf 'Helm chart jumi %s.\n\n```bash\nhelm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version %s\n```\n' "$version" "$version")"
-      - name: Make the chart package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh api --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            /orgs/jumi-ai/packages/container/charts%2Fjumi \
-            -f visibility=public
+          if [ "$skip_push" = 0 ]; then
+            printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+            helm push "jumi-${version}.tgz" oci://ghcr.io/jumi-ai/charts
+          fi
+          if ! git rev-parse -q --verify "refs/tags/jumi-v${version}" >/dev/null; then
+            git tag "jumi-v${version}"
+            git push origin "jumi-v${version}"
+          fi
+          if gh release view "jumi-v${version}" >/dev/null 2>&1; then
+            echo "release jumi-v${version} already exists"
+          else
+            gh release create "jumi-v${version}" "jumi-${version}.tgz" \
+              --title "jumi ${version}" \
+              --notes "$(printf 'Helm chart jumi %s.\n\n```bash\nhelm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version %s\n```\n' "$version" "$version")"
+          fi
