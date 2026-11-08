@@ -28,7 +28,7 @@ Review notes for this repository. Each section heading is a comma-separated list
 
 ## .github/workflows/chart.yml
 
-- A publish job that runs only on a jumi-v* tag, pushes the OCI chart, and opens a GitHub Release looks fine. A publish job on pull_request, or a job that skips the Release, is wrong. Compare the publish if to the gh release create step.
+- A publish job that runs on a push to `main` when `Chart.yaml` `version` has no `jumi-v<version>` tag yet (plus a `jumi-v*` tag fallback that never publishes twice), pushes the OCI chart unless that OCI tag already exists (skip, do not fail or overwrite), and opens a GitHub Release with the workflow's `.tgz` looks fine. A publish job on pull_request that pushes, a job that skips the Release, or a `gh api` visibility step is wrong. Compare the publish if to the gh release create step.
 - contents: write on the publish job looks fine. contents: write on the lint job is wrong.
 - A kind e2e job that installs with bundled Postgres and Codex on, waits for router/control Ready (with readOnlyRootFilesystem on), dry-run creates engine/worker Jobs as control SA (admit) plus hostPath/envFrom/image/automount/init-envFrom/dataSourceRef/configKeyRef variants (deny), proves another user is not matched, proves control:3010 TCP from the router pod, upgrades with networkPolicy.enabled and re-proves router reachability (Job-labelled deny skipped with a log line when the CNI does not enforce), then helm upgrades and checks the token Secret data survived, looks fine. A job that creates real Jobs without --as/--dry-run, or skips the upgrade data check, is wrong.
 
@@ -52,8 +52,9 @@ Review notes for this repository. Each section heading is a comma-separated list
 - Per-role `jobs.engine/worker.forgeTokenSecret` (`{name, key}`, default empty = secret.existingSecret + gitea/github key) looks fine. Duplicate env entries or a missing allowlist entry are wrong. Compare charts/jumi/templates/_helpers.tpl jobForgeEnv/jobSecretNames to charts/jumi/values.yaml.
 - `database.existingSecret` + `database.urlKey` (default empty = bundled Postgres or secret.existingSecret + databaseUrlKey) for router, control and Jobs looks fine. A hard-coded Secret name is wrong. Compare charts/jumi/templates/_helpers.tpl databaseEnv to charts/jumi/README.md.
 - `jobs.<role>.initContainers` rendered as-is with reviewer/worker images looks fine. Any other image is wrong (policy denies it). Compare charts/jumi/templates/_jobs.tpl to charts/jumi/values.yaml.
-- `jobs.<role>.volumeClaimLabels/Annotations` on home/work claim templates, and `router/control.podLabels/Annotations` on pod templates, look fine. Dropping them in the template is wrong. Compare charts/jumi/templates/_jobs.tpl and control/router.yaml to charts/jumi/values.yaml.
-- `readOnlyRootFilesystem: true` in containerSecurityContext for router, control, Postgres-wait inits and Job templates (with /tmp, /data, /home/jumi, /work volumes) looks fine. A writable root is wrong unless the path and toggle are documented in JUMI_PR.md.
+- `jobs.<role>.volumeClaimLabels/Annotations` on home/work/tmp claim templates, and `router/control.podLabels/Annotations` on pod templates, look fine. Dropping them in the template is wrong. Compare charts/jumi/templates/_jobs.tpl and control/router.yaml to charts/jumi/values.yaml.
+- Job `/tmp` on a disk-backed ephemeral claim (`jobs.<role>.tmpSize`, default 4Gi) with a 1Mi memory `secrets` volume at `/run/jumi-secrets` (`JUMI_SECRETS_DIR`) looks fine. A memory-backed Job `/tmp` is wrong. Compare charts/jumi/templates/_jobs.tpl to charts/jumi/values.yaml.
+- `readOnlyRootFilesystem: true` in containerSecurityContext for router, control, Postgres-wait inits and Job templates (with Job `/tmp` on a disk-backed claim, `/run/jumi-secrets` memory `emptyDir`, `/data`, `/home/jumi`, `/work` volumes) looks fine. A writable root is wrong unless the path and toggle are documented in JUMI_PR.md.
 
 ## renovate.json, .github/workflows/chart.yml, charts/jumi/values.yaml, charts/jumi/Chart.yaml
 
@@ -65,5 +66,5 @@ Review notes for this repository. Each section heading is a comma-separated list
 
 ## charts/jumi/Chart.yaml, charts/jumi/values.yaml, charts/jumi/README.md, scripts/contract-check.sh
 
-- Chart 0.2.0 with appVersion 10.4.0 and kubeVersion >= 1.30 looks fine (ValidatingAdmissionPolicy v1 needs 1.30). An appVersion bump by a bot is wrong: it stays a human PR that scripts/contract-check.sh must pass.
+- Chart 0.3.0 with appVersion 10.5.1 and kubeVersion >= 1.30 looks fine (ValidatingAdmissionPolicy v1 needs 1.30). An appVersion bump by a bot is wrong: it stays a human PR that scripts/contract-check.sh must pass.
 - An upgrade section from 0.1.0 that names removed engine/worker Deployments, PVCs, values, and the kirmanak to jumi-ai image move looks fine. A silent breaking change is wrong.

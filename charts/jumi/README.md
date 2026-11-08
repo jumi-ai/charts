@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.2.0` is tested against image tag `v10.4.0`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.3.0` is tested against image tag `v10.5.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,13 +43,13 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.2.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.3.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
 ```
 
-That package is published by the `jumi-v` tag.
+That package is published when a push to `main` bumps `charts/jumi/Chart.yaml` `version` (no hand-cut tag; merging to `main` publishes).
 
 From a checkout:
 
@@ -64,7 +64,7 @@ helm install jumi ./charts/jumi \
 
 Leave `opencode.wellKnownUrl` at `disabled` unless you run your own endpoint.
 
-Pin an image with `image.reviewer.tag` or `image.worker.tag` set to `vX.Y.Z@sha256:...`. Empty uses `v` plus `Chart.appVersion`.
+Pin an image with `image.reviewer.tag` or `image.worker.tag` set to `vX.Y.Z@sha256:...`. Empty uses `v` plus `Chart.appVersion`. That pin is the tested default, not a ceiling: set a tag to run a newer Jumi than the chart pins.
 
 Bring Postgres by putting `DATABASE_URL` in the Secret. `postgres.enabled` starts a bundled database instead. Router, control, and Jobs all use it.
 
@@ -128,7 +128,8 @@ helm install jumi ./charts/jumi ... \
 
 Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, requests `100m/512Mi`, limit `4Gi`). Worker rows use the worker image (`jobs.worker.timeoutMs` default 14400000, requests `100m/512Mi`, limit `8Gi`).
 
-- `jobs.engine/worker.storageClass`, `homeSize` (default 10Gi), `workSize` (default 8Gi) size the generic ephemeral `home`/`work` volumes. `tmp` is a 256Mi memory `emptyDir`.
+- `jobs.engine/worker.storageClass`, `homeSize` (default 10Gi), `workSize` (default 8Gi), `tmpSize` (default 4Gi) size the generic ephemeral `home`/`work`/`tmp` volumes. `/tmp` is disk-backed so agent tools, uv caches and venvs do not exhaust a tmpfs.
+- Each Job also mounts a 1Mi memory `emptyDir` at `/run/jumi-secrets` with `JUMI_SECRETS_DIR=/run/jumi-secrets`, so the entrypoint's scrubbed secrets file stays off disk.
 - `jobs.extraEnv` / `jobs.extraEnvFrom` (plus per-role `jobs.engine/ worker.extraEnv` / `extraEnvFrom`) add env to both Jobs. Referenced Secrets and ConfigMaps are auto-allowlisted in the admission policy.
 - `jobs.extraConfigMaps` (plus per-role) mounts extra ConfigMaps into Jobs: `{name, mountPath}`. Names are auto-allowlisted.
 - `config.files` holds runner files. Set `jobs.engine.runnersFile` / `jobs.worker.runnersFile` to a key in `config.files` to set `JUMI_RUNNERS_FILE` for that role.
@@ -136,9 +137,9 @@ Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, req
 - `jobs.engine/worker.podLabels` / `podAnnotations` label the Job pods.
 - `jobs.engine/worker.forgeTokenSecret` as `{name, key}` (default empty = `secret.existingSecret` + `secret.giteaTokenKey`, or `secret.githubPrivateKeyKey` when `forge: github`). Lets reviewer and worker use different bot tokens without duplicate env entries. Named Secrets are auto-allowlisted.
 - `jobs.engine/worker.initContainers` (list, rendered as-is). Images must be the reviewer or worker repository or the policy denies the Job. The policy checks their image, security context, `env`/`envFrom` `secretKeyRef`/`configMapKeyRef` against the same allowlists.
-- `jobs.engine/worker.volumeClaimLabels` / `volumeClaimAnnotations` are applied to the `home` and `work` ephemeral claim templates' `metadata` (e.g. a backup-exclude label).
+- `jobs.engine/worker.volumeClaimLabels` / `volumeClaimAnnotations` are applied to the `home`, `work` and `tmp` ephemeral claim templates' `metadata` (e.g. a backup-exclude label).
 - `router.podLabels` / `router.podAnnotations` and `control.podLabels` / `control.podAnnotations` label the router Deployment and control StatefulSet pods.
-- `containerSecurityContext.readOnlyRootFilesystem: true` (default) applies to router, control, Postgres-wait init containers and both Job templates. Every writable path is a volume (`/tmp` `emptyDir`, `/data`, `/home/jumi`, `/work`).
+- `containerSecurityContext.readOnlyRootFilesystem: true` (default) applies to router, control, Postgres-wait init containers and both Job templates. Every writable path is a volume (Job `/tmp` is a disk-backed claim, `/run/jumi-secrets` is a memory `emptyDir`, plus `/data`, `/home/jumi`, `/work`).
 
 ## Database
 
@@ -156,6 +157,12 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.2.0
+
+- New values: `jobs.engine.tmpSize` / `jobs.worker.tmpSize` (default `4Gi`). Job `/tmp` moved from a 256Mi memory `emptyDir` to a disk-backed ephemeral claim using the role's `storageClass` and claim labels/annotations.
+- Jobs now mount a 1Mi memory `emptyDir` at `/run/jumi-secrets` with `JUMI_SECRETS_DIR` set there. No value to tune.
+- Chart `0.3.0` pins Jumi `v10.5.1`. `image.reviewer.tag` / `image.worker.tag` still override the default, so a newer Jumi can run without waiting for a chart release. Jumi `GRADLE_SEED_HOME` (v10.5.0, optional) needs no chart value; use `jobs.extraEnv` / per-role `extraEnv` when needed.
 
 ## Upgrade from 0.1.0
 
