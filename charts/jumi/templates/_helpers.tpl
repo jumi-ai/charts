@@ -62,10 +62,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- printf "%s-codex-token" (include "jumi.fullname" .) }}
 {{- end }}
 
-{{- define "jumi.jobNamespace" -}}
-{{- .Values.control.jobNamespace | default .Release.Namespace }}
-{{- end }}
-
 {{- define "jumi.policyName" -}}
 {{- printf "%s-%s-jobs" .Release.Namespace (include "jumi.fullname" .) | trunc 253 | trimSuffix "-" | lower }}
 {{- end }}

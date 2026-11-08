@@ -68,8 +68,6 @@ control:
   workerMaxJobs: 1
   dispatchPollMs: 5000
   jobStartupTimeoutMs: 600000
-  # Optional override for the Job namespace. Empty uses the release namespace.
-  jobNamespace: ""
 
 router:
   replicas: 1
