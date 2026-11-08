@@ -3,9 +3,14 @@ secret:
 gitea:
   url: https://gitea.example
   allowedOrgs: example-org
-extraEnvFrom:
-  - secretRef:
-      name: extra-secrets
+jobs:
+  extraEnvFrom:
+    - secretRef:
+        name: extra-secrets
+  engine:
+    runnersFile: runners.json
+  worker:
+    runnersFile: runners.json
 config:
   files:
     runners.json: |

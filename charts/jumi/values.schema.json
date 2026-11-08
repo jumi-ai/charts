@@ -16,22 +16,31 @@
         }
       }
     },
+    "codex": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
     "router": {
       "type": "object",
       "properties": {
         "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
       }
     },
-    "engine": {
+    "control": {
       "type": "object",
       "properties": {
-        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+        "dispatchEngine": { "type": "boolean" },
+        "dispatchWorker": { "type": "boolean" },
+        "engineMaxJobs": { "type": "integer", "minimum": 1 },
+        "workerMaxJobs": { "type": "integer", "minimum": 1 }
       }
     },
-    "worker": {
+    "networkPolicy": {
       "type": "object",
       "properties": {
-        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+        "enabled": { "type": "boolean" }
       }
     }
   }

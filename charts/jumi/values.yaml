@@ -3,12 +3,12 @@ fullnameOverride: ""
 
 image:
   reviewer:
-    repository: ghcr.io/kirmanak/jumi-reviewer
-    # Empty uses Chart.appVersion. A pin is vX.Y.Z@sha256:...
+    repository: ghcr.io/jumi-ai/jumi-reviewer
+    # Empty uses v plus Chart.appVersion. A pin is vX.Y.Z@sha256:...
     tag: ""
     pullPolicy: IfNotPresent
   worker:
-    repository: ghcr.io/kirmanak/jumi-worker
+    repository: ghcr.io/jumi-ai/jumi-worker
     tag: ""
     pullPolicy: IfNotPresent
 
@@ -46,17 +46,124 @@ opencode:
   wellKnownUrl: disabled
   model: ""
 
+# Codex device login. Off by default (the GitHub factory).
+# On: control gets a retained 1Gi RWO claim at /data, port 3010,
+# a token-only Secret that control fills, and Jobs mount it.
+codex:
+  enabled: false
+
+control:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  persistence:
+    size: 1Gi
+    storageClass: ""
+  dispatchEngine: true
+  dispatchWorker: true
+  engineMaxJobs: 1
+  workerMaxJobs: 1
+  dispatchPollMs: 5000
+  jobStartupTimeoutMs: 600000
+
+router:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  # Operator board on port 3001. Only ever expose it behind an auth proxy
+  # on a separate host, never on the webhook host.
+  board:
+    enabled: false
+    port: 3001
+    ingress:
+      enabled: false
+      className: ""
+      annotations: {}
+      host: ""
+      path: /
+      pathType: Prefix
+      tls:
+        enabled: false
+        secretName: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+# One-shot Job templates per ledger row. Engine rows use the reviewer
+# image, worker rows use the worker image.
+jobs:
+  extraEnv: []
+  extraEnvFrom: []
+  # Extra ConfigMaps mounted into both Job roles.
+  # Each entry: {name, mountPath}. The names are auto-allowlisted.
+  extraConfigMaps: []
+  engine:
+    timeoutMs: 1800000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 4Gi
+    storageClass: ""
+    homeSize: 10Gi
+    workSize: 8Gi
+    podLabels: {}
+    podAnnotations: {}
+    # Key in config.files mounted at /config. Empty disables JUMI_RUNNERS_FILE.
+    runnersFile: ""
+    extraEnv: []
+    extraEnvFrom: []
+    extraConfigMaps: []
+    # Unset by default; the admission policy checks it only when set.
+    hostUsers: null
+  worker:
+    timeoutMs: 14400000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 8Gi
+    storageClass: ""
+    homeSize: 10Gi
+    workSize: 8Gi
+    podLabels: {}
+    podAnnotations: {}
+    runnersFile: ""
+    extraEnv: []
+    extraEnvFrom: []
+    extraConfigMaps: []
+    hostUsers: null
+
 extraEnv: []
 
-# Extra Secrets as env. Use this for tokens.
+# Extra Secrets as env for router and control. Use this for tokens.
+# (Jobs use jobs.extraEnvFrom instead so the admission policy can allowlist them.)
 extraEnvFrom: []
 
 config:
-  # Files mounted at /config. runners.json sets JUMI_RUNNERS_FILE on engine and worker.
+  # Files mounted for Jobs. Set jobs.engine/worker.runnersFile to a key here
+  # to set JUMI_RUNNERS_FILE for that role.
   files: {}
-
-database:
-  # Key lives in secret.existingSecret.
 
 postgres:
   enabled: false
@@ -80,52 +187,8 @@ postgres:
     limits:
       memory: 1Gi
 
-router:
-  replicas: 1
-  service:
-    type: ClusterIP
-    port: 3000
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 512Mi
-
-ingress:
+networkPolicy:
   enabled: false
-  className: ""
-  annotations: {}
-  host: ""
-  path: /
-  pathType: Prefix
-  tls:
-    enabled: false
-    secretName: ""
-
-engine:
-  replicas: 1
-  persistence:
-    size: 1Gi
-    storageClass: ""
-  resources:
-    requests:
-      cpu: 100m
-      memory: 512Mi
-    limits:
-      memory: 8Gi
-
-worker:
-  replicas: 1
-  persistence:
-    size: 5Gi
-    storageClass: ""
-  resources:
-    requests:
-      cpu: 100m
-      memory: 512Mi
-    limits:
-      memory: 8Gi
 
 podSecurityContext:
   runAsNonRoot: true
