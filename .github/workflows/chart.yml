@@ -20,7 +20,15 @@ jobs:
       - name: Install Helm
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
+              break
+            fi
+            echo "helm download attempt $i failed, retrying..." >&2
+            sleep 10
+            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
+          done
           tar -xzf /tmp/helm.tgz -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version
@@ -36,7 +44,15 @@ jobs:
       - name: Install Helm
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
+              break
+            fi
+            echo "helm download attempt $i failed, retrying..." >&2
+            sleep 10
+            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
+          done
           tar -xzf /tmp/helm.tgz -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version
@@ -54,14 +70,34 @@ jobs:
       - name: Install Helm
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
+              break
+            fi
+            echo "helm download attempt $i failed, retrying..." >&2
+            sleep 10
+            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
+          done
           tar -xzf /tmp/helm.tgz -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version
       - name: Install kind
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          urls="https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.24.0/kind-linux-amd64"
+          ok=0
+          for i in 1 2 3 4 5; do
+            for url in $urls; do
+              if curl -fsSL --retry 3 --retry-delay 10 --retry-all-errors -o /tmp/kind "$url"; then
+                ok=1
+                break 2
+              fi
+              echo "kind download attempt $i from $url failed, retrying..." >&2
+            done
+            sleep 10
+          done
+          if [ "$ok" != 1 ]; then echo "kind download failed after 5 attempts" >&2; exit 1; fi
           chmod +x /tmp/kind
           sudo mv /tmp/kind /usr/local/bin/kind
           kind version
@@ -170,7 +206,15 @@ jobs:
       - name: Install Helm
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
+              break
+            fi
+            echo "helm download attempt $i failed, retrying..." >&2
+            sleep 10
+            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
+          done
           tar -xzf /tmp/helm.tgz -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
       - name: Publish OCI chart and GitHub Release
