@@ -31,7 +31,7 @@ spec:
         object.spec.template.spec.containers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }})))
     - message: init image must use a chart image
       expression: >-
-        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }})))
+        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }}))))
     - message: job serviceAccountName is not the chart job account
       expression: >-
         object.spec.template.spec.serviceAccountName == {{ $jobSA | quote }}
@@ -64,19 +64,19 @@ spec:
         object.spec.template.spec.containers.all(c, !has(c.envFrom) || c.envFrom.all(ef, !has(ef.secretRef) || ef.secretRef.name in {{ $secrets }}))
     - message: job must carry the chart role labels
       expression: >-
-        has(object.metadata.labels) && has(object.metadata.labels['app.kubernetes.io/component']) && object.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker'] && has(object.metadata.labels['app.kubernetes.io/instance']) && object.metadata.labels['app.kubernetes.io/instance'] == {{ $root.Release.Name | quote }}
+        has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker'] && 'app.kubernetes.io/instance' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/instance'] == {{ $root.Release.Name | quote }}
     - message: job pods must carry the chart role labels
       expression: >-
-        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && has(object.spec.template.metadata.labels['app.kubernetes.io/component']) && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && 'app.kubernetes.io/component' in object.spec.template.metadata.labels && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
     {{- if not (kindIs "invalid" $root.Values.jobs.engine.hostUsers) }}
     - message: engine Jobs must set hostUsers consistently
       expression: >-
-        object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.engine.hostUsers | toString }})
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.engine.hostUsers | toString }})
     {{- end }}
     {{- if not (kindIs "invalid" $root.Values.jobs.worker.hostUsers) }}
     - message: worker Jobs must set hostUsers consistently
       expression: >-
-        object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.worker.hostUsers | toString }})
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (has(object.spec.template.spec.hostUsers) && object.spec.template.spec.hostUsers == {{ $root.Values.jobs.worker.hostUsers | toString }})
     {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
