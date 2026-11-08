@@ -34,7 +34,7 @@ spec:
         (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (c.image.startsWith({{ printf "%s:" $reviewer | quote }}) || c.image.startsWith({{ printf "%s@" $reviewer | quote }}) || c.image.startsWith({{ printf "%s:" $worker | quote }}) || c.image.startsWith({{ printf "%s@" $worker | quote }}))))
     - message: job serviceAccountName is not the chart job account
       expression: >-
-        object.spec.template.spec.serviceAccountName == {{ $jobSA | quote }}
+        object.spec.template.spec.serviceAccountName == {{ $jobSA | quote }} && (!has(object.spec.template.spec.serviceAccount) || object.spec.template.spec.serviceAccount == {{ $jobSA | quote }})
     - message: automountServiceAccountToken must be false
       expression: >-
         object.spec.template.spec.automountServiceAccountToken == false
@@ -49,7 +49,7 @@ spec:
         object.spec.template.spec.containers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == 'RuntimeDefault')
     - message: initContainers must use the restricted security context
       expression: >-
-        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, (!has(c.securityContext) || (has(c.securityContext.allowPrivilegeEscalation) ? c.securityContext.allowPrivilegeEscalation == false : true)) && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0)))
+        (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == 'RuntimeDefault'))
     - message: volumes must be emptyDir, ephemeral, or an allowlisted Secret or ConfigMap
       expression: >-
         object.spec.template.spec.volumes.all(v, has(v.emptyDir) || (has(v.ephemeral) && has(v.ephemeral.volumeClaimTemplate) && has(v.ephemeral.volumeClaimTemplate.spec) && has(v.ephemeral.volumeClaimTemplate.spec.accessModes) && 'ReadWriteOnce' in v.ephemeral.volumeClaimTemplate.spec.accessModes && (!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) || v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}) && (!has(v.ephemeral.volumeClaimTemplate.spec.volumeName) || v.ephemeral.volumeClaimTemplate.spec.volumeName == '') && !has(v.ephemeral.volumeClaimTemplate.spec.dataSource) && !has(v.ephemeral.volumeClaimTemplate.spec.selector)) || (has(v.secret) && v.secret.secretName in {{ $secrets }}) || (has(v.configMap) && v.configMap.name in {{ $cms }}))
