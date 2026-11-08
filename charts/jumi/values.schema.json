@@ -22,10 +22,19 @@
         "enabled": { "type": "boolean" }
       }
     },
+    "database": {
+      "type": "object",
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "urlKey": { "type": "string" }
+      }
+    },
     "router": {
       "type": "object",
       "properties": {
-        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 }
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "podLabels": { "type": "object" },
+        "podAnnotations": { "type": "object" }
       }
     },
     "control": {
@@ -34,7 +43,50 @@
         "dispatchEngine": { "type": "boolean" },
         "dispatchWorker": { "type": "boolean" },
         "engineMaxJobs": { "type": "integer", "minimum": 1 },
-        "workerMaxJobs": { "type": "integer", "minimum": 1 }
+        "workerMaxJobs": { "type": "integer", "minimum": 1 },
+        "podLabels": { "type": "object" },
+        "podAnnotations": { "type": "object" }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "type": "object",
+          "properties": {
+            "forgeTokenSecret": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            },
+            "initContainers": { "type": "array" },
+            "volumeClaimLabels": { "type": "object" },
+            "volumeClaimAnnotations": { "type": "object" }
+          }
+        },
+        "worker": {
+          "type": "object",
+          "properties": {
+            "forgeTokenSecret": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            },
+            "initContainers": { "type": "array" },
+            "volumeClaimLabels": { "type": "object" },
+            "volumeClaimAnnotations": { "type": "object" }
+          }
+        }
+      }
+    },
+    "containerSecurityContext": {
+      "type": "object",
+      "properties": {
+        "readOnlyRootFilesystem": { "type": "boolean" }
       }
     },
     "networkPolicy": {

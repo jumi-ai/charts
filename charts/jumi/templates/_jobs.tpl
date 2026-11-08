@@ -50,6 +50,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $cfg.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: jumi
           image: {{ include "jumi.image" (dict "root" $root "repository" $root.Values.image.reviewer.repository "tag" $root.Values.image.reviewer.tag) }}
@@ -62,6 +66,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 10001
             runAsGroup: 10001
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -72,7 +77,7 @@ spec:
             - name: JUMI_JOB_ID
               value: control-fills-in
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
-            {{- include "jumi.jobForgeEnv" $root | nindent 12 }}
+            {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
             - name: LEASE_MS
@@ -133,6 +138,17 @@ spec:
         - name: home
           ephemeral:
             volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
               spec:
                 accessModes: ["ReadWriteOnce"]
                 resources:
@@ -144,6 +160,17 @@ spec:
         - name: work
           ephemeral:
             volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
               spec:
                 accessModes: ["ReadWriteOnce"]
                 resources:
@@ -230,6 +257,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $cfg.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: jumi
           image: {{ include "jumi.image" (dict "root" $root "repository" $root.Values.image.worker.repository "tag" $root.Values.image.worker.tag) }}
@@ -242,6 +273,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 10001
             runAsGroup: 10001
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -252,7 +284,7 @@ spec:
             - name: JUMI_JOB_ID
               value: control-fills-in
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
-            {{- include "jumi.jobForgeEnv" $root | nindent 12 }}
+            {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
             - name: LEASE_MS
@@ -313,6 +345,17 @@ spec:
         - name: home
           ephemeral:
             volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
               spec:
                 accessModes: ["ReadWriteOnce"]
                 resources:
@@ -324,6 +367,17 @@ spec:
         - name: work
           ephemeral:
             volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
               spec:
                 accessModes: ["ReadWriteOnce"]
                 resources:

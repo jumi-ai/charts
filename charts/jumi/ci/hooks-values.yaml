@@ -1,0 +1,83 @@
+secret:
+  existingSecret: jumi-secrets
+gitea:
+  url: https://gitea.example
+  allowedOrgs: example-org
+codex:
+  enabled: true
+database:
+  existingSecret: db-secret
+  urlKey: DATABASE_URL
+router:
+  podLabels:
+    example.com/owner: router
+  podAnnotations:
+    example.com/note: router-hook
+control:
+  podLabels:
+    example.com/owner: control
+  podAnnotations:
+    example.com/note: control-hook
+jobs:
+  engine:
+    forgeTokenSecret:
+      name: engine-forge-secret
+      key: TOKEN
+    initContainers:
+      - name: init
+        image: ghcr.io/jumi-ai/jumi-reviewer:v10.4.0
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        env:
+          - name: FROM_INIT
+            valueFrom:
+              secretKeyRef:
+                name: engine-init-secret
+                key: token
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+    volumeClaimLabels:
+      example.com/backup: "false"
+    volumeClaimAnnotations:
+      example.com/note: engine-hook
+  worker:
+    forgeTokenSecret:
+      name: worker-forge-secret
+      key: TOKEN
+    initContainers:
+      - name: init
+        image: ghcr.io/jumi-ai/jumi-worker:v10.4.0
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        env:
+          - name: FROM_INIT
+            valueFrom:
+              secretKeyRef:
+                name: worker-init-secret
+                key: token
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+    volumeClaimLabels:
+      example.com/backup: "false"
+    volumeClaimAnnotations:
+      example.com/note: worker-hook

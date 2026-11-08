@@ -12,7 +12,7 @@ helm lint "$chart"
 render() {
   local name="$1"
   shift
-  helm template jumi "$chart" "$@" >"$work/$name.yaml"
+  helm template jumi "$chart" --namespace default "$@" >"$work/$name.yaml"
 }
 
 render gitea -f "$chart/ci/gitea-values.yaml"
@@ -21,10 +21,11 @@ render codex -f "$chart/ci/codex-values.yaml"
 render postgres -f "$chart/ci/postgres-values.yaml"
 render ingress -f "$chart/ci/ingress-values.yaml"
 render overlay -f "$chart/ci/overlay-values.yaml"
+render hooks -f "$chart/ci/hooks-values.yaml"
 render digest -f "$chart/ci/gitea-values.yaml" \
   --set image.reviewer.tag=v10.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-if helm template jumi "$chart" \
+if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   >"$work/bad.yaml" 2>"$work/bad.err"; then
@@ -131,8 +132,63 @@ if "CODEX_AUTH_FILE" not in codex:
     raise SystemExit("codex render must set CODEX_AUTH_FILE in Jobs")
 if '"resourceNames"' not in codex and "resourceNames" not in codex:
     raise SystemExit("codex Role must restrict secrets by resourceNames")
-if "BOARD_PEER_URL" not in codex:
-    raise SystemExit("codex render should wire the board peer URL")
+# BOARD_PEER_URL is a peer factory board URL (port 3001), never control:3010; unset by default
+for _name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks"):
+    _text = (work / f"{_name}.yaml").read_text()
+    if "BOARD_PEER_URL" in _text:
+        raise SystemExit(f"{_name}: BOARD_PEER_URL must be unset by default (use extraEnv)")
+
+def has_control_service(text):
+    for doc in text.split("\n---"):
+        if "kind: Service" not in doc:
+            continue
+        for line in doc.splitlines():
+            s = line.strip()
+            if s == "name: control":
+                # port 3010 only, selector is this release control pod
+                if "port: 3010" not in doc:
+                    raise SystemExit("control Service must expose port 3010")
+                # ensure no http/3000 port in the fixed control Service doc
+                if "port: 3000" in doc:
+                    raise SystemExit("control Service must expose port 3010 only")
+                if "app.kubernetes.io/component: control" not in doc:
+                    raise SystemExit("control Service must select control pods")
+                return True
+    return False
+
+for _name in ("gitea", "github", "postgres", "ingress", "overlay"):
+    if has_control_service((work / f"{_name}.yaml").read_text()):
+        raise SystemExit(f"{_name}: control Service must exist only with codex.enabled")
+for _name in ("codex", "hooks"):
+    if not has_control_service((work / f"{_name}.yaml").read_text()):
+        raise SystemExit(f"{_name}: control Service missing (codex.enabled)")
+
+# admission policy holes: dataSourceRef and init envFrom must be checked
+if "dataSourceRef" not in gitea:
+    raise SystemExit("policy must reject dataSourceRef")
+if "initContainer envFrom secretRef" not in gitea:
+    raise SystemExit("policy must check initContainer envFrom secretRef")
+if "configMapKeyRef" not in gitea or "configMapRef" not in gitea:
+    raise SystemExit("policy must check ConfigMap refs")
+
+hooks = (work / "hooks.yaml").read_text()
+for _secret in ("engine-forge-secret", "worker-forge-secret", "db-secret", "engine-init-secret", "worker-init-secret"):
+    if _secret not in hooks:
+        raise SystemExit(f"hooks render missing {_secret} (allowlist must include it)")
+# hooks pod/claim metadata
+for _needle in ("example.com/owner", "example.com/note", "example.com/backup"):
+    if _needle not in hooks:
+        raise SystemExit(f"hooks render missing pod/claim metadata {_needle}")
+if "volumeClaimLabels" in hooks or "volumeClaimAnnotations" in hooks:
+    pass
+# hooks must render initContainers as-is with chart images (JSON inside ConfigMap)
+if hooks.count('"name": "init"') < 2 and hooks.count("FROM_INIT") < 2:
+    raise SystemExit("hooks render must include both initContainers")
+# readOnlyRootFilesystem in router, control and Jobs (YAML + JSON styles)
+if hooks.count("readOnlyRootFilesystem") < 6:
+    raise SystemExit("hooks render must set readOnlyRootFilesystem on router, control, waits and Jobs")
+if "mountPath: /tmp" not in hooks and '"mountPath": "/tmp"' not in hooks:
+    raise SystemExit("hooks render missing /tmp mount for read-only fs")
 
 postgres = (work / "postgres.yaml").read_text()
 if "$(POSTGRES_PASSWORD)" not in postgres or "pg_isready" not in postgres:
@@ -192,7 +248,7 @@ def load_jobs(name):
     flush()
     return out
 
-for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress"):
+for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hooks"):
     jobs = load_jobs(name)
     if "engine" not in jobs or "worker" not in jobs:
         raise SystemExit(f"{name}: Job templates missing engine/worker")
