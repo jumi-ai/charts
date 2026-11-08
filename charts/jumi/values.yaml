@@ -26,6 +26,15 @@ secret:
   githubWebhookKey: GITHUB_WEBHOOK_SECRET
   databaseUrlKey: DATABASE_URL
 
+# Separate database Secret. Empty = today's behaviour
+# (bundled Postgres Secret when postgres.enabled, else
+# secret.existingSecret + secret.databaseUrlKey).
+# Set this to a CNPG app Secret name + key for router,
+# control and both Job templates.
+database:
+  existingSecret: ""
+  urlKey: ""
+
 gitea:
   url: ""
   # Required.
@@ -53,6 +62,8 @@ codex:
   enabled: false
 
 control:
+  podLabels: {}
+  podAnnotations: {}
   resources:
     requests:
       cpu: 50m
@@ -71,6 +82,8 @@ control:
 
 router:
   replicas: 1
+  podLabels: {}
+  podAnnotations: {}
   service:
     type: ClusterIP
     port: 3000
@@ -117,6 +130,17 @@ jobs:
   extraConfigMaps: []
   engine:
     timeoutMs: 1800000
+    # Per-role forge token as {name, key}. Empty = secret.existingSecret
+    # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
+    forgeTokenSecret:
+      name: ""
+      key: ""
+    # Rendered as-is into the Job pod spec. Images must be the reviewer
+    # or worker repository or the admission policy denies the Job.
+    initContainers: []
+    # Applied to the home and work ephemeral claim templates' metadata.
+    volumeClaimLabels: {}
+    volumeClaimAnnotations: {}
     resources:
       requests:
         cpu: 100m
@@ -137,6 +161,17 @@ jobs:
     hostUsers: null
   worker:
     timeoutMs: 14400000
+    # Per-role forge token as {name, key}. Empty = secret.existingSecret
+    # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
+    forgeTokenSecret:
+      name: ""
+      key: ""
+    # Rendered as-is into the Job pod spec. Images must be the reviewer
+    # or worker repository or the admission policy denies the Job.
+    initContainers: []
+    # Applied to the home and work ephemeral claim templates' metadata.
+    volumeClaimLabels: {}
+    volumeClaimAnnotations: {}
     resources:
       requests:
         cpu: 100m
@@ -199,7 +234,13 @@ podSecurityContext:
     type: RuntimeDefault
 
 containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault

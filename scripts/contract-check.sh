@@ -20,7 +20,7 @@ PY
 render() {
   local name="$1"
   shift
-  helm template jumi "$chart" "$@" >"$work/$name.yaml"
+  helm template jumi "$chart" --namespace default "$@" >"$work/$name.yaml"
 }
 
 render gitea -f "$chart/ci/gitea-values.yaml"
@@ -29,6 +29,7 @@ render codex -f "$chart/ci/codex-values.yaml"
 render postgres -f "$chart/ci/postgres-values.yaml"
 render ingress -f "$chart/ci/ingress-values.yaml"
 render overlay -f "$chart/ci/overlay-values.yaml"
+render hooks -f "$chart/ci/hooks-values.yaml"
 
 python3 - "$work" <<'PY'
 import json, re, sys
@@ -229,7 +230,7 @@ def check_render(name):
         if not codex and "CODEX_AUTH_FILE" in env:
             raise SystemExit(f"{name}/{role} job: CODEX_AUTH_FILE without codex")
 
-for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay"):
+for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks"):
     check_render(name)
 print("contract-check ok")
 PY

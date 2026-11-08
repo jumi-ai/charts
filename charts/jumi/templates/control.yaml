@@ -19,6 +19,13 @@ spec:
       labels:
         {{- include "jumi.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: control
+        {{- with $root.Values.control.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $root.Values.control.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "jumi.controlSA" $root }}
       automountServiceAccountToken: true
@@ -134,10 +141,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
             - name: jobs
               mountPath: /etc/jumi/jobs
               readOnly: true
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: jobs
           configMap:
             name: {{ include "jumi.fullname" $root }}-jobs
@@ -182,3 +193,25 @@ spec:
       targetPort: codex
       protocol: TCP
     {{- end }}
+{{- if $root.Values.codex.enabled }}
+---
+# Fixed host for Codex device login (board targets `control:3010`).
+# Only one Codex-enabled release fits in a namespace.
+apiVersion: v1
+kind: Service
+metadata:
+  name: control
+  labels:
+    {{- include "jumi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: control
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "jumi.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: control
+  ports:
+    - name: codex
+      port: 3010
+      targetPort: codex
+      protocol: TCP
+{{- end }}

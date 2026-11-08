@@ -123,8 +123,22 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 {{- end }}
 
+{{- define "jumi.databaseSecretName" -}}
+{{- if .Values.database.existingSecret }}{{ .Values.database.existingSecret }}{{- else }}{{ .Values.secret.existingSecret }}{{- end }}
+{{- end }}
+
+{{- define "jumi.databaseSecretKey" -}}
+{{- if .Values.database.urlKey }}{{ .Values.database.urlKey }}{{- else }}{{ .Values.secret.databaseUrlKey }}{{- end }}
+{{- end }}
+
 {{- define "jumi.databaseEnv" -}}
-{{- if .Values.postgres.enabled }}
+{{- if .Values.database.existingSecret }}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "jumi.databaseSecretName" . }}
+      key: {{ include "jumi.databaseSecretKey" . }}
+{{- else if .Values.postgres.enabled }}
 - name: POSTGRES_PASSWORD
   valueFrom:
     secretKeyRef:
@@ -136,8 +150,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 - name: DATABASE_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secret.existingSecret }}
-      key: {{ .Values.secret.databaseUrlKey }}
+      name: {{ include "jumi.databaseSecretName" . }}
+      key: {{ include "jumi.databaseSecretKey" . }}
 {{- end }}
 {{- end }}
 
@@ -213,13 +227,18 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
 All Secret names a Job template may reference. Derived from rendered values:
-existingSecret, the bundled-postgres Secret, jobs.extraEnvFrom secretRefs,
-secretKeyRefs in jobs.extraEnv, and the Codex token Secret when enabled.
+existingSecret, database override, bundled-postgres Secret,
+jobs.extraEnvFrom secretRefs, secretKeyRefs in jobs.extraEnv,
+per-role forgeTokenSecret, initContainers env/envFrom secretRefs,
+and the Codex token Secret when enabled.
 */}}
 {{- define "jumi.jobSecretNames" -}}
 {{- $names := list .Values.secret.existingSecret }}
 {{- if .Values.postgres.enabled }}
 {{- $names = append $names (include "jumi.postgresSecret" .) }}
+{{- end }}
+{{- if .Values.database.existingSecret }}
+{{- $names = append $names .Values.database.existingSecret }}
 {{- end }}
 {{- range .Values.jobs.extraEnvFrom }}
 {{- with .secretRef }}{{ $names = append $names .name }}{{ end }}
@@ -228,11 +247,22 @@ secretKeyRefs in jobs.extraEnv, and the Codex token Secret when enabled.
 {{- with .valueFrom }}{{ with .secretKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
 {{- end }}
 {{- range list .Values.jobs.engine .Values.jobs.worker }}
+{{- with .forgeTokenSecret }}
+{{- with .name }}{{ $names = append $names . }}{{ end }}
+{{- end }}
 {{- range .extraEnvFrom }}
 {{- with .secretRef }}{{ $names = append $names .name }}{{ end }}
 {{- end }}
 {{- range .extraEnv }}
 {{- with .valueFrom }}{{ with .secretKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
+{{- range .initContainers }}
+{{- range .envFrom }}
+{{- with .secretRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .env }}
+{{- with .valueFrom }}{{ with .secretKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if .Values.codex.enabled }}
@@ -243,7 +273,9 @@ secretKeyRefs in jobs.extraEnv, and the Codex token Secret when enabled.
 
 {{/*
 All ConfigMap names a Job template may reference. Derived from rendered values:
-the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps.
+the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps,
+plus configMapKeyRef/configMapRef in jobs.extraEnv/extraEnvFrom, per-role
+extraEnv/extraEnvFrom, and initContainers env/envFrom configMap refs.
 */}}
 {{- define "jumi.jobConfigMapNames" -}}
 {{- $names := list }}
@@ -251,8 +283,28 @@ the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps
 {{- $names = append $names (printf "%s-config" (include "jumi.fullname" .)) }}
 {{- end }}
 {{- range .Values.jobs.extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- range .Values.jobs.extraEnvFrom }}
+{{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .Values.jobs.extraEnv }}
+{{- with .valueFrom }}{{ with .configMapKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
 {{- range list .Values.jobs.engine .Values.jobs.worker }}
 {{- range .extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- range .extraEnvFrom }}
+{{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .extraEnv }}
+{{- with .valueFrom }}{{ with .configMapKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
+{{- range .initContainers }}
+{{- range .envFrom }}
+{{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .env }}
+{{- with .valueFrom }}{{ with .configMapKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- $names | uniq | toJson }}
 {{- end }}
@@ -265,56 +317,75 @@ the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps
 {{- end }}
 
 {{/*
+Per-role forge token Secret name/key. Empty forgeTokenSecret = default.
+*/}}
+{{- define "jumi.jobForgeSecretName" -}}
+{{- $root := .root -}}
+{{- $cfg := .cfg -}}
+{{- if and $cfg.forgeTokenSecret $cfg.forgeTokenSecret.name }}{{ $cfg.forgeTokenSecret.name }}{{- else }}{{ $root.Values.secret.existingSecret }}{{- end }}
+{{- end }}
+
+{{- define "jumi.jobForgeSecretKey" -}}
+{{- $root := .root -}}
+{{- $cfg := .cfg -}}
+{{- if and $cfg.forgeTokenSecret $cfg.forgeTokenSecret.key }}{{ $cfg.forgeTokenSecret.key }}{{- else if eq $root.Values.forge "gitea" }}{{ $root.Values.secret.giteaTokenKey }}{{- else }}{{ $root.Values.secret.githubPrivateKeyKey }}{{- end }}
+{{- end }}
+
+{{/*
 Forge env for one-shot Jobs. No webhook secrets: Jobs serve no HTTP.
+Expects {root, cfg} so engine/worker can use different bot tokens
+without duplicate env entries.
 */}}
 {{- define "jumi.jobForgeEnv" -}}
-{{- if eq .Values.forge "gitea" }}
+{{- $root := .root -}}
+{{- $cfg := .cfg -}}
+{{- if eq $root.Values.forge "gitea" }}
 - name: FORGE
   value: gitea
 - name: GITEA_URL
-  value: {{ .Values.gitea.url | quote }}
+  value: {{ $root.Values.gitea.url | quote }}
 - name: GITEA_ALLOWED_ORGS
-  value: {{ .Values.gitea.allowedOrgs | quote }}
-{{- if .Values.gitea.allowedRepos }}
+  value: {{ $root.Values.gitea.allowedOrgs | quote }}
+{{- if $root.Values.gitea.allowedRepos }}
 - name: GITEA_ALLOWED_REPOS
-  value: {{ .Values.gitea.allowedRepos | quote }}
+  value: {{ $root.Values.gitea.allowedRepos | quote }}
 {{- end }}
 - name: BOT_USERNAME
-  value: {{ .Values.gitea.botUsername | quote }}
+  value: {{ $root.Values.gitea.botUsername | quote }}
 - name: GITEA_BOT_TOKEN
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secret.existingSecret }}
-      key: {{ .Values.secret.giteaTokenKey }}
+      name: {{ include "jumi.jobForgeSecretName" (dict "root" $root "cfg" $cfg) }}
+      key: {{ include "jumi.jobForgeSecretKey" (dict "root" $root "cfg" $cfg) }}
 {{- else }}
 - name: FORGE
   value: github
 - name: FORGE_URL
-  value: {{ .Values.github.url | quote }}
+  value: {{ $root.Values.github.url | quote }}
 - name: GITHUB_APP_ID
-  value: {{ .Values.github.appId | toString | quote }}
-{{- if .Values.github.installationId }}
+  value: {{ $root.Values.github.appId | toString | quote }}
+{{- if $root.Values.github.installationId }}
 - name: GITHUB_APP_INSTALLATION_ID
-  value: {{ .Values.github.installationId | toString | quote }}
+  value: {{ $root.Values.github.installationId | toString | quote }}
 {{- end }}
 - name: GITHUB_ALLOWED_ORGS
-  value: {{ .Values.github.allowedOrgs | quote }}
-{{- if .Values.github.allowedRepos }}
+  value: {{ $root.Values.github.allowedOrgs | quote }}
+{{- if $root.Values.github.allowedRepos }}
 - name: GITHUB_ALLOWED_REPOS
-  value: {{ .Values.github.allowedRepos | quote }}
+  value: {{ $root.Values.github.allowedRepos | quote }}
 {{- end }}
 - name: BOT_USERNAME
-  value: {{ .Values.github.botUsername | quote }}
+  value: {{ $root.Values.github.botUsername | quote }}
 - name: GITHUB_APP_PRIVATE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secret.existingSecret }}
-      key: {{ .Values.secret.githubPrivateKeyKey }}
+      name: {{ include "jumi.jobForgeSecretName" (dict "root" $root "cfg" $cfg) }}
+      key: {{ include "jumi.jobForgeSecretKey" (dict "root" $root "cfg" $cfg) }}
 {{- end }}
 - name: OPENCODE_WELLKNOWN_URL
-  value: {{ .Values.opencode.wellKnownUrl | quote }}
-{{- if .Values.opencode.model }}
+  value: {{ $root.Values.opencode.wellKnownUrl | quote }}
+{{- if $root.Values.opencode.model }}
 - name: OPENCODE_MODEL
-  value: {{ .Values.opencode.model | quote }}
+  value: {{ $root.Values.opencode.model | quote }}
 {{- end }}
 {{- end }}

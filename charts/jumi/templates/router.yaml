@@ -19,6 +19,13 @@ spec:
       labels:
         {{- include "jumi.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: router
+        {{- with $root.Values.router.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $root.Values.router.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "jumi.fullname" $root }}
       automountServiceAccountToken: false
@@ -74,10 +81,6 @@ spec:
               value: router
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.forgeEnv" $root | nindent 12 }}
-            {{- if $root.Values.codex.enabled }}
-            - name: BOARD_PEER_URL
-              value: {{ printf "http://%s-control:3010" (include "jumi.fullname" $root) | quote }}
-            {{- end }}
             {{- with $root.Values.extraEnv }}
             {{ toYaml . | nindent 12 }}
             {{- end }}

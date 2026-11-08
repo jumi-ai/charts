@@ -16,7 +16,7 @@ Board URL: https://{{ .Values.router.board.ingress.host }}/
 {{- end }}
 {{- if .Values.codex.enabled }}
 
-Codex is on. Control keeps a retained claim at /data (the real Codex grant, never seeded). The token Secret {{ include "jumi.codexSecretName" . }} starts empty and control fills it; helm upgrade keeps its data.
+Codex is on. Control keeps a retained claim at /data (the real Codex grant, never seeded). The token Secret {{ include "jumi.codexSecretName" . }} starts empty and control fills it; helm upgrade keeps its data. A Service named control exposes port 3010 for device login; only one Codex-enabled release fits in a namespace.
 {{- else }}
 
 Codex is off. Control is diskless at /data and no token Secret is installed.
@@ -24,7 +24,10 @@ Codex is off. Control is diskless at /data and no token Secret is installed.
 
 Control dispatches one Kubernetes Job per ledger row from /etc/jumi/jobs/engine.json (reviewer image) and worker.json (worker image).
 
-{{- if .Values.postgres.enabled }}
+{{- if .Values.database.existingSecret }}
+
+DATABASE_URL comes from secret {{ .Values.database.existingSecret }} key {{ .Values.database.urlKey | default .Values.secret.databaseUrlKey }}.
+{{- else if .Values.postgres.enabled }}
 
 Bundled Postgres is on. The password key {{ .Values.postgres.auth.passwordKey }} in {{ include "jumi.postgresSecret" . }} must be URL-safe (@ : / break DATABASE_URL).
 {{- else }}

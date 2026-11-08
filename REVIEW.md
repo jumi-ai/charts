@@ -30,7 +30,7 @@ Review notes for this repository. Each section heading is a comma-separated list
 
 - A publish job that runs only on a jumi-v* tag, pushes the OCI chart, and opens a GitHub Release looks fine. A publish job on pull_request, or a job that skips the Release, is wrong. Compare the publish if to the gh release create step.
 - contents: write on the publish job looks fine. contents: write on the lint job is wrong.
-- A kind e2e job that installs with bundled Postgres and Codex on, waits for router/control Ready, dry-run creates engine/worker Jobs as control SA (admit) plus hostPath/envFrom/image/automount variants (deny), proves another user is not matched, then helm upgrades and checks the token Secret data survived, looks fine. A job that creates real Jobs without --as/--dry-run, or skips the upgrade data check, is wrong.
+- A kind e2e job that installs with bundled Postgres and Codex on, waits for router/control Ready (with readOnlyRootFilesystem on), dry-run creates engine/worker Jobs as control SA (admit) plus hostPath/envFrom/image/automount/init-envFrom/dataSourceRef/configKeyRef variants (deny), proves another user is not matched, proves control:3010 TCP from the router pod, upgrades with networkPolicy.enabled and re-proves router reachability (Job-labelled deny skipped with a log line when the CNI does not enforce), then helm upgrades and checks the token Secret data survived, looks fine. A job that creates real Jobs without --as/--dry-run, or skips the upgrade data check, is wrong.
 
 ## charts/jumi/values.yaml, charts/jumi/templates/_jobs.tpl, charts/jumi/templates/job-templates.yaml, charts/jumi/templates/configmap.yaml
 
@@ -42,6 +42,18 @@ Review notes for this repository. Each section heading is a comma-separated list
 - An allowlist that mentions image repos, Secret names, ConfigMap names, and storage classes looks fine. A second hand-kept list is wrong: every allowlist entry must be templated from the rendered values (jobSecretNames/jobConfigMapNames/jobStorageClasses), so any Secret or ConfigMap a Job references is allowlisted automatically and nothing else is. Compare charts/jumi/templates/admission-policy.yaml to charts/jumi/templates/_helpers.tpl.
 - Cluster-scoped ValidatingAdmissionPolicy/Binding names that include the release namespace and fullname look fine. A fixed name is wrong: two installs would collide.
 - A token Secret manifest with no data looks fine. A data or stringData key is wrong: helm upgrade would overwrite data written after install.
+- An ephemeral volume without dataSourceRef looks fine. A dataSourceRef is wrong: cloning control's /data or the bundled Postgres claim must be denied. Compare charts/jumi/templates/admission-policy.yaml volumes to the dataSourceRef check.
+- A containers-only envFrom secretRef check looks fine on its own. Missing initContainers envFrom, or missing configMapRef/configMapKeyRef on either container list, is wrong: a compromised control could read any Secret/ConfigMap. Compare charts/jumi/templates/admission-policy.yaml to the initContainer and ConfigMap validations.
+
+## charts/jumi/values.yaml, charts/jumi/values.schema.json, charts/jumi/templates/control.yaml, charts/jumi/templates/router.yaml, charts/jumi/templates/_helpers.tpl, charts/jumi/templates/_jobs.tpl, charts/jumi/README.md
+
+- A Service named exactly `control` (port 3010 only, selecting this release's control pod) rendered only with codex.enabled looks fine. A missing control Service with Codex on, or any control Service with Codex off, is wrong: the board dials fixed host control:3010 and only one Codex-enabled release fits in a namespace. Compare charts/jumi/templates/control.yaml to charts/jumi/README.md.
+- `BOARD_PEER_URL` unset by default looks fine. Wiring it to `http://<fullname>-control:3010` is wrong: it is a peer factory's board URL (port 3001), set via extraEnv/extraEnvFrom when peering factories. Compare charts/jumi/templates/router.yaml to charts/jumi/README.md.
+- Per-role `jobs.engine/worker.forgeTokenSecret` (`{name, key}`, default empty = secret.existingSecret + gitea/github key) looks fine. Duplicate env entries or a missing allowlist entry are wrong. Compare charts/jumi/templates/_helpers.tpl jobForgeEnv/jobSecretNames to charts/jumi/values.yaml.
+- `database.existingSecret` + `database.urlKey` (default empty = bundled Postgres or secret.existingSecret + databaseUrlKey) for router, control and Jobs looks fine. A hard-coded Secret name is wrong. Compare charts/jumi/templates/_helpers.tpl databaseEnv to charts/jumi/README.md.
+- `jobs.<role>.initContainers` rendered as-is with reviewer/worker images looks fine. Any other image is wrong (policy denies it). Compare charts/jumi/templates/_jobs.tpl to charts/jumi/values.yaml.
+- `jobs.<role>.volumeClaimLabels/Annotations` on home/work claim templates, and `router/control.podLabels/Annotations` on pod templates, look fine. Dropping them in the template is wrong. Compare charts/jumi/templates/_jobs.tpl and control/router.yaml to charts/jumi/values.yaml.
+- `readOnlyRootFilesystem: true` in containerSecurityContext for router, control, Postgres-wait inits and Job templates (with /tmp, /data, /home/jumi, /work volumes) looks fine. A writable root is wrong unless the path and toggle are documented in JUMI_PR.md.
 
 ## renovate.json, .github/workflows/chart.yml, charts/jumi/values.yaml, charts/jumi/Chart.yaml
 
