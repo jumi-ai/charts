@@ -22,6 +22,8 @@ render postgres -f "$chart/ci/postgres-values.yaml"
 render ingress -f "$chart/ci/ingress-values.yaml"
 render overlay -f "$chart/ci/overlay-values.yaml"
 render hooks -f "$chart/ci/hooks-values.yaml"
+render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
+  --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
   --set image.reviewer.tag=v10.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
@@ -175,6 +177,20 @@ hooks = (work / "hooks.yaml").read_text()
 for _secret in ("engine-forge-secret", "worker-forge-secret", "db-secret", "engine-init-secret", "worker-init-secret"):
     if _secret not in hooks:
         raise SystemExit(f"hooks render missing {_secret} (allowlist must include it)")
+# ConfigMap env refs (jobs.extraEnv/extraEnvFrom + per-role) must be allowlisted:
+# each name renders in Job JSON and 4x in the policy ConfigMap validations.
+for _cm in ("shared-cm", "shared-cm-from", "engine-cm", "engine-cm-from", "worker-cm", "worker-cm-from"):
+    if hooks.count(_cm) < 3:
+        raise SystemExit(f"hooks render missing {_cm} (ConfigMap allowlist must include it)")
+# containerSecurityContext toggle must reach Jobs, not just router/control.
+off = (work / "hooks-readonly-off.yaml").read_text()
+if '"readOnlyRootFilesystem": false' not in off and 'readOnlyRootFilesystem: false' not in off:
+    raise SystemExit("hooks-readonly-off render missing readOnlyRootFilesystem: false")
+# Jobs render as JSON inside the ConfigMap, router/control as YAML: require both styles.
+if '"readOnlyRootFilesystem": false' not in off:
+    raise SystemExit("hooks-readonly-off Jobs must render containerSecurityContext toggle (JSON)")
+if 'readOnlyRootFilesystem: false' not in off:
+    raise SystemExit("hooks-readonly-off router/control must render containerSecurityContext toggle (YAML)")
 # hooks pod/claim metadata
 for _needle in ("example.com/owner", "example.com/note", "example.com/backup"):
     if _needle not in hooks:

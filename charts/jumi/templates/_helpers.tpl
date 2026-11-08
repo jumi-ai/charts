@@ -274,7 +274,8 @@ and the Codex token Secret when enabled.
 {{/*
 All ConfigMap names a Job template may reference. Derived from rendered values:
 the chart config ConfigMap when a runners file is set, plus jobs extraConfigMaps,
-plus initContainers env/envFrom configMap refs.
+plus configMapKeyRef/configMapRef in jobs.extraEnv/extraEnvFrom, per-role
+extraEnv/extraEnvFrom, and initContainers env/envFrom configMap refs.
 */}}
 {{- define "jumi.jobConfigMapNames" -}}
 {{- $names := list }}
@@ -282,8 +283,20 @@ plus initContainers env/envFrom configMap refs.
 {{- $names = append $names (printf "%s-config" (include "jumi.fullname" .)) }}
 {{- end }}
 {{- range .Values.jobs.extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- range .Values.jobs.extraEnvFrom }}
+{{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .Values.jobs.extraEnv }}
+{{- with .valueFrom }}{{ with .configMapKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
 {{- range list .Values.jobs.engine .Values.jobs.worker }}
 {{- range .extraConfigMaps }}{{ $names = append $names .name }}{{ end }}
+{{- range .extraEnvFrom }}
+{{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}
+{{- end }}
+{{- range .extraEnv }}
+{{- with .valueFrom }}{{ with .configMapKeyRef }}{{ $names = append $names .name }}{{ end }}{{ end }}
+{{- end }}
 {{- range .initContainers }}
 {{- range .envFrom }}
 {{- with .configMapRef }}{{ $names = append $names .name }}{{ end }}

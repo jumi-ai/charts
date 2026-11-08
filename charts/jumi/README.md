@@ -129,7 +129,7 @@ helm install jumi ./charts/jumi ... \
 Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, requests `100m/512Mi`, limit `4Gi`). Worker rows use the worker image (`jobs.worker.timeoutMs` default 14400000, requests `100m/512Mi`, limit `8Gi`).
 
 - `jobs.engine/worker.storageClass`, `homeSize` (default 10Gi), `workSize` (default 8Gi) size the generic ephemeral `home`/`work` volumes. `tmp` is a 256Mi memory `emptyDir`.
-- `jobs.extraEnv` / `jobs.extraEnvFrom` (plus per-role `jobs.engine/ worker.extraEnv` / `extraEnvFrom`) add env to both Jobs. Referenced Secrets are auto-allowlisted in the admission policy.
+- `jobs.extraEnv` / `jobs.extraEnvFrom` (plus per-role `jobs.engine/ worker.extraEnv` / `extraEnvFrom`) add env to both Jobs. Referenced Secrets and ConfigMaps are auto-allowlisted in the admission policy.
 - `jobs.extraConfigMaps` (plus per-role) mounts extra ConfigMaps into Jobs: `{name, mountPath}`. Names are auto-allowlisted.
 - `config.files` holds runner files. Set `jobs.engine.runnersFile` / `jobs.worker.runnersFile` to a key in `config.files` to set `JUMI_RUNNERS_FILE` for that role.
 - `jobs.engine/worker.hostUsers` is unset by default; the policy checks it only when set.

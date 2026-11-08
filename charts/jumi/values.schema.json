@@ -86,7 +86,13 @@
     "containerSecurityContext": {
       "type": "object",
       "properties": {
-        "readOnlyRootFilesystem": { "type": "boolean" }
+        "runAsNonRoot": { "type": "boolean" },
+        "runAsUser": { "type": "integer" },
+        "runAsGroup": { "type": "integer" },
+        "readOnlyRootFilesystem": { "type": "boolean" },
+        "allowPrivilegeEscalation": { "type": "boolean" },
+        "capabilities": { "type": "object" },
+        "seccompProfile": { "type": "object" }
       }
     },
     "networkPolicy": {

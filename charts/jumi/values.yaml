@@ -234,8 +234,13 @@ podSecurityContext:
     type: RuntimeDefault
 
 containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault

@@ -63,16 +63,7 @@ spec:
             - run
             - src/job.ts
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 10001
-            runAsGroup: 10001
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
+            {{- include "jumi.containerSecurityContext" $root | nindent 12 }}
           env:
             - name: JUMI_JOB_ID
               value: control-fills-in
@@ -270,16 +261,7 @@ spec:
             - run
             - src/job.ts
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 10001
-            runAsGroup: 10001
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
+            {{- include "jumi.containerSecurityContext" $root | nindent 12 }}
           env:
             - name: JUMI_JOB_ID
               value: control-fills-in
