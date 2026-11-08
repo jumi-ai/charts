@@ -157,11 +157,11 @@ jobs:
               Path(f"/tmp/{name}-automount.json").write_text(json.dumps(v))
           PY
           as_control="system:serviceaccount:jumi-ci:jumi-control"
-          kubectl create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
-          kubectl create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
+          kubectl -n jumi-ci create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
+          kubectl -n jumi-ci create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
           for variant in hostpath envfrom image automount; do
             for role in engine worker; do
-              if kubectl create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
+              if kubectl -n jumi-ci create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
                 echo "policy admitted ${role}-${variant} for control SA" >&2
                 exit 1
               fi
@@ -170,7 +170,7 @@ jobs:
           done
           # same commands as a different user are not matched by the policy:
           # no denial message from the policy itself
-          if kubectl create -f /tmp/engine.json --as="system:serviceaccount:jumi-ci:jumi-job" --dry-run=server -o name 2>/tmp/other.err; then
+          if kubectl -n jumi-ci create -f /tmp/engine.json --as="system:serviceaccount:jumi-ci:jumi-job" --dry-run=server -o name 2>/tmp/other.err; then
             echo "unexpected admit for job SA (RBAC should deny)" >&2
             exit 1
           fi
