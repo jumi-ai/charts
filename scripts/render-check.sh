@@ -25,7 +25,7 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v10.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set image.reviewer.tag=v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -72,9 +72,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v10.4.0" not in gitea:
+if "ghcr.io/jumi-ai/jumi-reviewer:v10.5.1" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v10.4.0" not in gitea:
+if "ghcr.io/jumi-ai/jumi-worker:v10.5.1" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -295,6 +295,38 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         mounts = {m["mountPath"] for m in c.get("volumeMounts", [])}
         if "/work" not in mounts or "/tmp" not in mounts:
             raise SystemExit(f"{name}/{role}: /work and /tmp mounts missing")
+        if env.get("JUMI_SECRETS_DIR") != "/run/jumi-secrets":
+            raise SystemExit(f"{name}/{role}: JUMI_SECRETS_DIR must be /run/jumi-secrets")
+        if "/run/jumi-secrets" not in mounts:
+            raise SystemExit(f"{name}/{role}: /run/jumi-secrets mount missing")
+        vols = {v["name"]: v for v in spec["template"]["spec"].get("volumes", [])}
+        if "secrets" not in vols:
+            raise SystemExit(f"{name}/{role}: secrets volume missing")
+        sec = vols["secrets"].get("emptyDir", {})
+        if sec.get("medium") != "Memory" or sec.get("sizeLimit") != "1Mi":
+            raise SystemExit(f"{name}/{role}: secrets volume must be 1Mi memory emptyDir")
+        if "tmp" not in vols:
+            raise SystemExit(f"{name}/{role}: tmp volume missing")
+        tmp = vols["tmp"]
+        if "emptyDir" in tmp:
+            raise SystemExit(f"{name}/{role}: tmp must not be memory-backed emptyDir")
+        claim = ((tmp.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("spec") or {}
+        if "ReadWriteOnce" not in (claim.get("accessModes") or []):
+            raise SystemExit(f"{name}/{role}: tmp claim must be ReadWriteOnce")
+        if (claim.get("resources") or {}).get("requests", {}).get("storage") != "4Gi":
+            raise SystemExit(f"{name}/{role}: tmp claim storage must be 4Gi")
+        if "dataSource" in claim or "dataSourceRef" in claim:
+            raise SystemExit(f"{name}/{role}: tmp claim must not carry dataSource")
+    # tmp claim carries the same labels/annotations as home/work (hooks render proves it)
+    hooks_jobs = load_jobs("hooks")
+    for role in ("engine", "worker"):
+        vols = {v["name"]: v for v in hooks_jobs[role]["spec"]["template"]["spec"].get("volumes", [])}
+        for claim_name in ("home", "work", "tmp"):
+            meta = ((vols[claim_name].get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("metadata") or {}
+            if (meta.get("labels") or {}).get("example.com/backup") != "false":
+                raise SystemExit(f"hooks/{role}: {claim_name} claim missing volumeClaimLabels")
+            if (meta.get("annotations") or {}).get("example.com/note") != f"{role}-hook":
+                raise SystemExit(f"hooks/{role}: {claim_name} claim missing volumeClaimAnnotations")
     eng = jobs["engine"]
     wor = jobs["worker"]
     if eng["spec"].get("activeDeadlineSeconds") != 3600:
@@ -313,7 +345,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 if "***" in (work / "postgres.yaml").read_text():
