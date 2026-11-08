@@ -77,6 +77,8 @@ spec:
               value: /home/jumi
             - name: WORKDIR
               value: /work
+            - name: JUMI_SECRETS_DIR
+              value: /run/jumi-secrets
             {{- if $cfg.runnersFile }}
             - name: JUMI_RUNNERS_FILE
               value: {{ printf "/config/%s" $cfg.runnersFile | quote }}
@@ -105,6 +107,8 @@ spec:
               mountPath: /work
             - name: tmp
               mountPath: /tmp
+            - name: secrets
+              mountPath: /run/jumi-secrets
             {{- if $cfg.runnersFile }}
             - name: config
               mountPath: /config
@@ -171,9 +175,31 @@ spec:
                 storageClassName: {{ . | quote }}
                 {{- end }}
         - name: tmp
+          ephemeral:
+            volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: {{ $cfg.tmpSize | quote }}
+                {{- with $cfg.storageClass }}
+                storageClassName: {{ . | quote }}
+                {{- end }}
+        - name: secrets
           emptyDir:
             medium: Memory
-            sizeLimit: 256Mi
+            sizeLimit: 1Mi
         {{- if $cfg.runnersFile }}
         - name: config
           configMap:
@@ -275,6 +301,8 @@ spec:
               value: /home/jumi
             - name: WORKDIR
               value: /work
+            - name: JUMI_SECRETS_DIR
+              value: /run/jumi-secrets
             {{- if $cfg.runnersFile }}
             - name: JUMI_RUNNERS_FILE
               value: {{ printf "/config/%s" $cfg.runnersFile | quote }}
@@ -303,6 +331,8 @@ spec:
               mountPath: /work
             - name: tmp
               mountPath: /tmp
+            - name: secrets
+              mountPath: /run/jumi-secrets
             {{- if $cfg.runnersFile }}
             - name: config
               mountPath: /config
@@ -369,9 +399,31 @@ spec:
                 storageClassName: {{ . | quote }}
                 {{- end }}
         - name: tmp
+          ephemeral:
+            volumeClaimTemplate:
+              {{- if or $cfg.volumeClaimLabels $cfg.volumeClaimAnnotations }}
+              metadata:
+                {{- with $cfg.volumeClaimLabels }}
+                labels:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                {{- with $cfg.volumeClaimAnnotations }}
+                annotations:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+              {{- end }}
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: {{ $cfg.tmpSize | quote }}
+                {{- with $cfg.storageClass }}
+                storageClassName: {{ . | quote }}
+                {{- end }}
+        - name: secrets
           emptyDir:
             medium: Memory
-            sizeLimit: 256Mi
+            sizeLimit: 1Mi
         {{- if $cfg.runnersFile }}
         - name: config
           configMap:

@@ -221,6 +221,9 @@ def check_render(name):
             raise SystemExit(f"{name}/{role} job: wrong runAs")
         mounts = {m["mountPath"] for m in c.get("volumeMounts", [])}
         for vol in roles["job"]["volumes"]:
+            # /gradle-seed is mounted only when GRADLE_SEED_HOME is set; without it the job runs cold.
+            if vol == "/gradle-seed" and "GRADLE_SEED_HOME" not in env:
+                continue
             if vol not in mounts:
                 raise SystemExit(f"{name}/{role} job: missing volume mount {vol}")
         if image_part not in c.get("image", ""):

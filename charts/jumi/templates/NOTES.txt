@@ -22,7 +22,7 @@ Codex is on. Control keeps a retained claim at /data (the real Codex grant, neve
 Codex is off. Control is diskless at /data and no token Secret is installed.
 {{- end }}
 
-Control dispatches one Kubernetes Job per ledger row from /etc/jumi/jobs/engine.json (reviewer image) and worker.json (worker image).
+Control dispatches one Kubernetes Job per ledger row from /etc/jumi/jobs/engine.json (reviewer image) and worker.json (worker image). Job /tmp is a disk-backed claim (jobs.engine.tmpSize {{ .Values.jobs.engine.tmpSize }}, jobs.worker.tmpSize {{ .Values.jobs.worker.tmpSize }}); the entrypoint's secrets file lives on a 1Mi tmpfs at /run/jumi-secrets (JUMI_SECRETS_DIR).
 
 {{- if .Values.database.existingSecret }}
 
