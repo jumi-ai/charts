@@ -106,7 +106,11 @@ helm install jumi ./charts/jumi \
 
 On: control gets a retained 1Gi RWO claim at `/data` (the real Codex grant, never seeded), port 3010 reachable only from the router Service, and a chart-owned token Secret with no data that control fills with a token-only `auth.json`. Jobs mount it and set `CODEX_AUTH_FILE`. `helm upgrade` keeps data written after install because the manifest carries no `data` keys.
 
-Off: no claim, no port 3010, no Secret, and the control Role grants nothing on Secrets.
+On also renders a Service named exactly `control` (port 3010 only, selecting this release's control pod) for the board's Codex device login, which dials the fixed host `control:3010`. Only one Codex-enabled release fits in a namespace.
+
+Off: no claim, no port 3010, no `control` Service, no Secret, and the control Role grants nothing on Secrets.
+
+`BOARD_PEER_URL` is unset by default. It is the URL of a peer factory's board (`/api/board` on port 3001), not control. Installers that peer factories set it via `extraEnv` / `extraEnvFrom`.
 
 ## Board
 
@@ -130,10 +134,19 @@ Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, req
 - `config.files` holds runner files. Set `jobs.engine.runnersFile` / `jobs.worker.runnersFile` to a key in `config.files` to set `JUMI_RUNNERS_FILE` for that role.
 - `jobs.engine/worker.hostUsers` is unset by default; the policy checks it only when set.
 - `jobs.engine/worker.podLabels` / `podAnnotations` label the Job pods.
+- `jobs.engine/worker.forgeTokenSecret` as `{name, key}` (default empty = `secret.existingSecret` + `secret.giteaTokenKey`, or `secret.githubPrivateKeyKey` when `forge: github`). Lets reviewer and worker use different bot tokens without duplicate env entries. Named Secrets are auto-allowlisted.
+- `jobs.engine/worker.initContainers` (list, rendered as-is). Images must be the reviewer or worker repository or the policy denies the Job. The policy checks their image, security context, `env`/`envFrom` `secretKeyRef`/`configMapKeyRef` against the same allowlists.
+- `jobs.engine/worker.volumeClaimLabels` / `volumeClaimAnnotations` are applied to the `home` and `work` ephemeral claim templates' `metadata` (e.g. a backup-exclude label).
+- `router.podLabels` / `router.podAnnotations` and `control.podLabels` / `control.podAnnotations` label the router Deployment and control StatefulSet pods.
+- `containerSecurityContext.readOnlyRootFilesystem: true` (default) applies to router, control, Postgres-wait init containers and both Job templates. Every writable path is a volume (`/tmp` `emptyDir`, `/data`, `/home/jumi`, `/work`).
+
+## Database
+
+Router, control and both Job templates use `DATABASE_URL` from `secret.existingSecret` + `secret.databaseUrlKey` by default (or the bundled Postgres password wiring when `postgres.enabled`). Set `database.existingSecret` + `database.urlKey` (default empty = today's behaviour) to use a separate Secret, e.g. a CNPG app Secret. The named Secret is auto-allowlisted.
 
 ## Network policy
 
-Off by default. `networkPolicy.enabled=true` (plain `networking.k8s.io/v1` only) allows control port 3010 ingress from the router only, denies all ingress to Jobs, and opens router port 3000 to the ingress controller and Prometheus.
+Off by default. `networkPolicy.enabled=true` (plain `networking.k8s.io/v1` only) allows control port 3010 ingress from the router only (matching the `control` Service's pods), denies all ingress to Jobs, and opens router port 3000 to the ingress controller and Prometheus.
 
 ## Hook
 

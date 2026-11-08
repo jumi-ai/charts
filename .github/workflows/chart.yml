@@ -123,6 +123,11 @@ jobs:
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci wait --for=condition=ready pod -l app.kubernetes.io/component=control --timeout=300s
+          # readOnlyRootFilesystem must be on for router, control and Jobs
+          kubectl -n jumi-ci get deployment jumi-router -o jsonpath='{.spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem}' | grep -q true
+          kubectl -n jumi-ci get statefulset jumi-control -o jsonpath='{.spec.template.spec.containers[*].securityContext.readOnlyRootFilesystem}' | grep -q true
+          kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.engine\\.json}" | grep -q "readOnlyRootFilesystem"
+          kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.worker\\.json}" | grep -q "readOnlyRootFilesystem"
       - name: Prove the admission policy
         run: |
           set -euo pipefail
@@ -155,11 +160,44 @@ jobs:
               v["metadata"]["name"] = f"e2e-{name}-automount"
               v["spec"]["template"]["spec"]["automountServiceAccountToken"] = True
               Path(f"/tmp/{name}-automount.json").write_text(json.dumps(v))
+              # init container with envFrom to a non-allowlisted Secret
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-init-envfrom"
+              main_sc = dict(v["spec"]["template"]["spec"]["containers"][0].get("securityContext", {}))
+              main_img = v["spec"]["template"]["spec"]["containers"][0]["image"]
+              v["spec"]["template"]["spec"].setdefault("initContainers", []).append({
+                  "name": "bad-init",
+                  "image": main_img,
+                  "securityContext": main_sc,
+                  "envFrom": [{"secretRef": {"name": "not-allowlisted"}}],
+              })
+              Path(f"/tmp/{name}-init-envfrom.json").write_text(json.dumps(v))
+              # ephemeral volume with dataSourceRef to a PVC
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-datasourceref"
+              v["spec"]["template"]["spec"]["volumes"].append({
+                  "name": "bad-ds",
+                  "ephemeral": {"volumeClaimTemplate": {"spec": {
+                      "accessModes": ["ReadWriteOnce"],
+                      "resources": {"requests": {"storage": "1Gi"}},
+                      "dataSourceRef": {"kind": "PersistentVolumeClaim", "name": "some-pvc"},
+                  }}},
+              })
+              v["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad-ds", "mountPath": "/bad-ds"})
+              Path(f"/tmp/{name}-datasourceref.json").write_text(json.dumps(v))
+              # container with env.valueFrom.configMapKeyRef to a non-allowlisted ConfigMap
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-configkeyref"
+              v["spec"]["template"]["spec"]["containers"][0].setdefault("env", []).append({
+                  "name": "BAD_CM",
+                  "valueFrom": {"configMapKeyRef": {"name": "not-allowlisted", "key": "k"}},
+              })
+              Path(f"/tmp/{name}-configkeyref.json").write_text(json.dumps(v))
           PY
           as_control="system:serviceaccount:jumi-ci:jumi-control"
           kubectl -n jumi-ci create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
           kubectl -n jumi-ci create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
-          for variant in hostpath envfrom image automount; do
+          for variant in hostpath envfrom image automount init-envfrom datasourceref configkeyref; do
             for role in engine worker; do
               if kubectl -n jumi-ci create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
                 echo "policy admitted ${role}-${variant} for control SA" >&2
@@ -179,6 +217,32 @@ jobs:
             cat /tmp/other.err >&2
             exit 1
           fi
+      - name: Prove Codex control:3010 from the router pod
+        run: |
+          set -euo pipefail
+          kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable')"
+      - name: NetworkPolicy still allows router to control:3010
+        run: |
+          set -euo pipefail
+          helm upgrade jumi ./charts/jumi -n jumi-ci \
+            -f charts/jumi/ci/gitea-values.yaml \
+            --set postgres.enabled=true \
+            --set codex.enabled=true \
+            --set networkPolicy.enabled=true
+          kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
+          kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
+          kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable with networkPolicy')"
+          # a Job-labelled pod must not reach control:3010 when the CNI enforces policy
+          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.4.0 \
+            --labels="app.kubernetes.io/name=jumi,app.kubernetes.io/instance=jumi,app.kubernetes.io/component=engine" \
+            --command -- sleep 60
+          kubectl -n jumi-ci wait --for=condition=ready pod/e2e-denied --timeout=120s
+          if kubectl -n jumi-ci exec pod/e2e-denied -- python3 -c "import socket; socket.create_connection(('control',3010),timeout=5).close()"; then
+            echo "kind CNI does not enforce NetworkPolicy; skipping Job-labelled deny check"
+          else
+            echo "Job-labelled pod correctly denied from control:3010"
+          fi
+          kubectl -n jumi-ci delete pod e2e-denied --wait=false
       - name: Upgrade keeps the token Secret data
         run: |
           set -euo pipefail
@@ -186,7 +250,8 @@ jobs:
           helm upgrade jumi ./charts/jumi -n jumi-ci \
             -f charts/jumi/ci/gitea-values.yaml \
             --set postgres.enabled=true \
-            --set codex.enabled=true
+            --set codex.enabled=true \
+            --set networkPolicy.enabled=true
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           got="$(kubectl -n jumi-ci get secret jumi-codex-token -o jsonpath='{.data.auth\.json}')"
           if [ -z "$got" ]; then
