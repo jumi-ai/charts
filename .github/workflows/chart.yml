@@ -34,6 +34,15 @@ jobs:
           helm version
       - name: Lint and render
         run: bash scripts/render-check.sh
+      - name: Public pull check regression
+        run: |
+          set -euo pipefail
+          bash scripts/public-pull-check.sh 0.1.0
+          if bash scripts/public-pull-check.sh 0.0.0-does-not-exist; then
+            echo "public-pull-check unexpectedly passed for a nonexistent version" >&2
+            exit 1
+          fi
+          echo "public-pull-check regression ok"
 
   contract:
     runs-on: ubuntu-latest
@@ -299,12 +308,8 @@ jobs:
           gh release create "jumi-v${version}" "jumi-${version}.tgz" \
             --title "jumi ${version}" \
             --notes "$(printf 'Helm chart jumi %s.\n\n```bash\nhelm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version %s\n```\n' "$version" "$version")"
-      - name: Make the chart package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify anonymous pull
         run: |
           set -euo pipefail
-          gh api --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            /orgs/jumi-ai/packages/container/charts%2Fjumi \
-            -f visibility=public
+          version="$(awk '/^version:/{print $2; exit}' charts/jumi/Chart.yaml)"
+          bash scripts/public-pull-check.sh "$version"
