@@ -43,7 +43,7 @@ jobs:
       key: TOKEN
     initContainers:
       - name: init
-        image: ghcr.io/jumi-ai/jumi-reviewer:v10.4.0
+        image: ghcr.io/jumi-ai/jumi-reviewer:v10.5.1
         securityContext:
           runAsNonRoot: true
           runAsUser: 10001
@@ -83,7 +83,7 @@ jobs:
       key: TOKEN
     initContainers:
       - name: init
-        image: ghcr.io/jumi-ai/jumi-worker:v10.4.0
+        image: ghcr.io/jumi-ai/jumi-worker:v10.5.1
         securityContext:
           runAsNonRoot: true
           runAsUser: 10001
