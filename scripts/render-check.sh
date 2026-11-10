@@ -26,6 +26,11 @@ render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
   --set image.reviewer.tag=v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# Split storageClass: one role pinned, the other unset. The chart's own Jobs
+# must still pass the chart's own gate (per-role exact rules admit this;
+# the generic union rule must stay permissive on presence).
+render split-sc -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.engine.storageClass=standard
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -372,6 +377,28 @@ digest = (work / "digest.yaml").read_text()
 pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
+# Split storageClass regression: engine pinned, worker unset.
+# The chart's own gate must admit the chart's own Jobs.
+split = (work / "split-sc.yaml").read_text()
+if "engine claims must use the engine storage class" not in split:
+    raise SystemExit("split-sc: per-role engine storageClass rule missing")
+if "worker claims must use the worker storage class" not in split:
+    raise SystemExit("split-sc: per-role worker storageClass rule missing")
+if "(!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) ||" not in split:
+    raise SystemExit("split-sc: generic volumes rule must allow a missing class (per-role rules enforce exactness)")
+split_jobs = load_jobs("split-sc")
+eng_claims = [v["ephemeral"]["volumeClaimTemplate"]["spec"]
+              for v in split_jobs["engine"]["spec"]["template"]["spec"]["volumes"]
+              if "ephemeral" in v]
+wor_claims = [v["ephemeral"]["volumeClaimTemplate"]["spec"]
+              for v in split_jobs["worker"]["spec"]["template"]["spec"]["volumes"]
+              if "ephemeral" in v]
+if not eng_claims or any(c.get("storageClassName") != "standard" for c in eng_claims):
+    raise SystemExit("split-sc: engine Jobs must render storageClassName=standard on every claim")
+if any("storageClassName" in c for c in wor_claims):
+    raise SystemExit("split-sc: worker Jobs must render no storageClassName when unset")
+if '"standard"' not in split:
+    raise SystemExit("split-sc: policy union must still list the configured class")
 if "***" in (work / "postgres.yaml").read_text():
     raise SystemExit("bundled postgres URL has a literal placeholder")
 print("render-check ok")
