@@ -110,7 +110,7 @@ On also renders a Service named exactly `control` (port 3010 only, selecting thi
 
 Off: no claim, no port 3010, no `control` Service, no Secret, and the control Role grants nothing on Secrets.
 
-`BOARD_PEER_URL` is unset by default. It is the URL of a peer factory's board (`/api/board` on port 3001), not control. Installers that peer factories set it via `extraEnv` / `extraEnvFrom`.
+`BOARD_PEER_URL` is unset by default. It is the URL of a peer factory's board (`/api/board` on port 3001), not control. Installers that peer factories set it via `router.extraEnv` / `router.extraEnvFrom` (router-only). Top-level `extraEnv` / `extraEnvFrom` render into both router and control, so a router-only token must use the `router.*` keys to keep it out of control (the pod with Kubernetes API access).
 
 ## Board
 
@@ -139,6 +139,8 @@ Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, req
 - `jobs.engine/worker.initContainers` (list, rendered as-is). Images must be the reviewer or worker repository or the policy denies the Job. The policy checks their image, security context, `env`/`envFrom` `secretKeyRef`/`configMapKeyRef` against the same allowlists.
 - `jobs.engine/worker.volumeClaimLabels` / `volumeClaimAnnotations` are applied to the `home`, `work` and `tmp` ephemeral claim templates' `metadata` (e.g. a backup-exclude label).
 - `router.podLabels` / `router.podAnnotations` and `control.podLabels` / `control.podAnnotations` label the router Deployment and control StatefulSet pods.
+- `router.hostUsers` / `control.hostUsers` are unset by default; rendered into each pod spec when set (same semantics as `jobs.<role>.hostUsers`). When `control.hostUsers: false`, the storage behind control's retained claim must support idmapped mounts.
+- `router.extraEnv` / `router.extraEnvFrom` add env to the router only; `control.extraEnv` / `control.extraEnvFrom` add env to control only. Top-level `extraEnv` / `extraEnvFrom` still render into both, so existing values keep working. Use the `router.*` keys for a router-only token (e.g. a board-peer token).
 - `containerSecurityContext.readOnlyRootFilesystem: true` (default) applies to router, control, Postgres-wait init containers and both Job templates. Every writable path is a volume (Job `/tmp` is a disk-backed claim, `/run/jumi-secrets` is a memory `emptyDir`, plus `/data`, `/home/jumi`, `/work`).
 
 ## Database

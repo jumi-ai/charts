@@ -30,6 +30,9 @@ spec:
       serviceAccountName: {{ include "jumi.controlSA" $root }}
       automountServiceAccountToken: true
       enableServiceLinks: false
+      {{- if not (kindIs "invalid" $root.Values.control.hostUsers) }}
+      hostUsers: {{ $root.Values.control.hostUsers }}
+      {{- end }}
       securityContext:
         {{- include "jumi.podSecurityContext" $root | nindent 8 }}
       {{- with $root.Values.imagePullSecrets }}
@@ -115,7 +118,11 @@ spec:
             {{- with $root.Values.extraEnv }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
-          {{- with $root.Values.extraEnvFrom }}
+            {{- with $root.Values.control.extraEnv }}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
+          {{- $controlEnvFrom := concat $root.Values.extraEnvFrom $root.Values.control.extraEnvFrom }}
+          {{- with $controlEnvFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}

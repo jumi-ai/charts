@@ -13,11 +13,19 @@ router:
     example.com/owner: router
   podAnnotations:
     example.com/note: router-hook
+  hostUsers: false
+  extraEnv:
+    - name: ROUTER_ONLY_TOKEN
+      value: router-secret
+  extraEnvFrom:
+    - secretRef:
+        name: router-only-secret
 control:
   podLabels:
     example.com/owner: control
   podAnnotations:
     example.com/note: control-hook
+  hostUsers: false
 jobs:
   extraEnv:
     - name: FROM_SHARED_CM

@@ -64,6 +64,11 @@ codex:
 control:
   podLabels: {}
   podAnnotations: {}
+  # Unset by default; rendered into the pod spec when set.
+  # When false, the storage behind the retained claim must support idmapped mounts.
+  hostUsers: null
+  extraEnv: []
+  extraEnvFrom: []
   resources:
     requests:
       cpu: 50m
@@ -84,6 +89,12 @@ router:
   replicas: 1
   podLabels: {}
   podAnnotations: {}
+  # Unset by default; rendered into the pod spec when set.
+  hostUsers: null
+  # Router-only env. Top-level extraEnv/extraEnvFrom render into both
+  # router and control; use these for a token only the router needs.
+  extraEnv: []
+  extraEnvFrom: []
   service:
     type: ClusterIP
     port: 3000
