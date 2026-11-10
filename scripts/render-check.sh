@@ -197,6 +197,30 @@ for _needle in ("example.com/owner", "example.com/note", "example.com/backup"):
         raise SystemExit(f"hooks render missing pod/claim metadata {_needle}")
 if "volumeClaimLabels" in hooks or "volumeClaimAnnotations" in hooks:
     pass
+# router/control hostUsers + per-component envFrom (hooks-values sets them)
+if hooks.count("hostUsers: false") < 2:
+    raise SystemExit("hooks render must set hostUsers: false on router and control")
+if "router-only-secret" not in hooks:
+    raise SystemExit("hooks render missing router-only extraEnvFrom")
+if "ROUTER_ONLY_TOKEN" not in hooks:
+    raise SystemExit("hooks render missing router-only extraEnv")
+def _split_docs(text):
+    return [d for d in text.split("\n---") if d.strip()]
+_router_docs = [d for d in _split_docs(hooks) if "kind: Deployment" in d and "app.kubernetes.io/component: router" in d]
+_control_docs = [d for d in _split_docs(hooks) if "kind: StatefulSet" in d]
+if not _router_docs or not _control_docs:
+    raise SystemExit("hooks render missing router Deployment or control StatefulSet")
+if "router-only-secret" not in _router_docs[0]:
+    raise SystemExit("router Deployment must carry the router-only extraEnvFrom")
+for _doc in _control_docs:
+    if "router-only-secret" in _doc:
+        raise SystemExit("router-only extraEnvFrom must be absent from control")
+    if "ROUTER_ONLY_TOKEN" in _doc:
+        raise SystemExit("router-only extraEnv must be absent from control")
+if "hostUsers: false" not in _router_docs[0]:
+    raise SystemExit("router Deployment must render hostUsers: false")
+if "hostUsers: false" not in _control_docs[0]:
+    raise SystemExit("control StatefulSet must render hostUsers: false")
 # hooks must render initContainers as-is with chart images (JSON inside ConfigMap)
 if hooks.count('"name": "init"') < 2 and hooks.count("FROM_INIT") < 2:
     raise SystemExit("hooks render must include both initContainers")

@@ -34,7 +34,10 @@
       "properties": {
         "replicas": { "type": "integer", "minimum": 1, "maximum": 1 },
         "podLabels": { "type": "object" },
-        "podAnnotations": { "type": "object" }
+        "podAnnotations": { "type": "object" },
+        "hostUsers": { "type": ["boolean", "null"] },
+        "extraEnv": { "type": "array" },
+        "extraEnvFrom": { "type": "array" }
       }
     },
     "control": {
@@ -45,7 +48,10 @@
         "engineMaxJobs": { "type": "integer", "minimum": 1 },
         "workerMaxJobs": { "type": "integer", "minimum": 1 },
         "podLabels": { "type": "object" },
-        "podAnnotations": { "type": "object" }
+        "podAnnotations": { "type": "object" },
+        "hostUsers": { "type": ["boolean", "null"] },
+        "extraEnv": { "type": "array" },
+        "extraEnvFrom": { "type": "array" }
       }
     },
     "jobs": {

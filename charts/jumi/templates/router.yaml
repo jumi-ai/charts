@@ -30,6 +30,9 @@ spec:
       serviceAccountName: {{ include "jumi.fullname" $root }}
       automountServiceAccountToken: false
       enableServiceLinks: false
+      {{- if not (kindIs "invalid" $root.Values.router.hostUsers) }}
+      hostUsers: {{ $root.Values.router.hostUsers }}
+      {{- end }}
       securityContext:
         {{- include "jumi.podSecurityContext" $root | nindent 8 }}
       {{- with $root.Values.imagePullSecrets }}
@@ -84,7 +87,11 @@ spec:
             {{- with $root.Values.extraEnv }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
-          {{- with $root.Values.extraEnvFrom }}
+            {{- with $root.Values.router.extraEnv }}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
+          {{- $routerEnvFrom := concat $root.Values.extraEnvFrom $root.Values.router.extraEnvFrom }}
+          {{- with $routerEnvFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}
