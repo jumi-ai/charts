@@ -8,6 +8,12 @@
 {{- $cms := include "jumi.jobConfigMapNames" $root }}
 {{- $scs := include "jumi.jobStorageClasses" $root }}
 {{- $policy := include "jumi.policyName" $root }}
+{{- $fixedKeys := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
+{{- $ctrlKeys := list "batch.kubernetes.io/controller-uid" "batch.kubernetes.io/job-name" "controller-uid" "job-name" }}
+{{- $engAllowed := concat $fixedKeys (keys $root.Values.jobs.engine.podLabels) $ctrlKeys | toJson }}
+{{- $workAllowed := concat $fixedKeys (keys $root.Values.jobs.worker.podLabels) $ctrlKeys | toJson }}
+{{- $engSC := $root.Values.jobs.engine.storageClass }}
+{{- $workSC := $root.Values.jobs.worker.storageClass }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -52,7 +58,7 @@ spec:
         (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == 'RuntimeDefault'))
     - message: volumes must be emptyDir, ephemeral, or an allowlisted Secret or ConfigMap
       expression: >-
-        object.spec.template.spec.volumes.all(v, has(v.emptyDir) || (has(v.ephemeral) && has(v.ephemeral.volumeClaimTemplate) && has(v.ephemeral.volumeClaimTemplate.spec) && has(v.ephemeral.volumeClaimTemplate.spec.accessModes) && 'ReadWriteOnce' in v.ephemeral.volumeClaimTemplate.spec.accessModes && (!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) || v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}) && (!has(v.ephemeral.volumeClaimTemplate.spec.volumeName) || v.ephemeral.volumeClaimTemplate.spec.volumeName == '') && !has(v.ephemeral.volumeClaimTemplate.spec.dataSource) && !has(v.ephemeral.volumeClaimTemplate.spec.dataSourceRef) && !has(v.ephemeral.volumeClaimTemplate.spec.selector)) || (has(v.secret) && v.secret.secretName in {{ $secrets }}) || (has(v.configMap) && v.configMap.name in {{ $cms }}))
+        object.spec.template.spec.volumes.all(v, has(v.emptyDir) || (has(v.ephemeral) && has(v.ephemeral.volumeClaimTemplate) && has(v.ephemeral.volumeClaimTemplate.spec) && has(v.ephemeral.volumeClaimTemplate.spec.accessModes) && v.ephemeral.volumeClaimTemplate.spec.accessModes == ['ReadWriteOnce'] && {{ if eq $scs "[]" }}(!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) || v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}){{ else }}(has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) && v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}){{ end }} && (!has(v.ephemeral.volumeClaimTemplate.spec.volumeName) || v.ephemeral.volumeClaimTemplate.spec.volumeName == '') && !has(v.ephemeral.volumeClaimTemplate.spec.dataSource) && !has(v.ephemeral.volumeClaimTemplate.spec.dataSourceRef) && !has(v.ephemeral.volumeClaimTemplate.spec.selector)) || (has(v.secret) && v.secret.secretName in {{ $secrets }}) || (has(v.configMap) && v.configMap.name in {{ $cms }}))
     - message: env secretKeyRef must reference an allowlisted Secret
       expression: >-
         object.spec.template.spec.containers.all(c, !has(c.env) || c.env.all(e, !has(e.valueFrom) || !has(e.valueFrom.secretKeyRef) || e.valueFrom.secretKeyRef.name in {{ $secrets }}))
@@ -83,6 +89,28 @@ spec:
     - message: job pods must carry the chart role labels
       expression: >-
         has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && 'app.kubernetes.io/component' in object.spec.template.metadata.labels && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
+    - message: engine job pods must only carry allowlisted labels
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $engAllowed }}))
+    - message: worker job pods must only carry allowlisted labels
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $workAllowed }}))
+    - message: engine claims must use the engine storage class
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || object.spec.template.spec.volumes.all(v, !has(v.ephemeral) || !has(v.ephemeral.volumeClaimTemplate) || !has(v.ephemeral.volumeClaimTemplate.spec) || {{ if $engSC }}(has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) && v.ephemeral.volumeClaimTemplate.spec.storageClassName == {{ $engSC | quote }}){{ else }}!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName){{ end }})
+    - message: worker claims must use the worker storage class
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || object.spec.template.spec.volumes.all(v, !has(v.ephemeral) || !has(v.ephemeral.volumeClaimTemplate) || !has(v.ephemeral.volumeClaimTemplate.spec) || {{ if $workSC }}(has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) && v.ephemeral.volumeClaimTemplate.spec.storageClassName == {{ $workSC | quote }}){{ else }}!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName){{ end }})
+    {{- range $k, $v := $root.Values.jobs.engine.volumeClaimLabels }}
+    - message: engine claims must carry volumeClaimLabel {{ $k }}
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || object.spec.template.spec.volumes.all(v, !has(v.ephemeral) || !has(v.ephemeral.volumeClaimTemplate) || (has(v.ephemeral.volumeClaimTemplate.metadata) && has(v.ephemeral.volumeClaimTemplate.metadata.labels) && {{ $k | quote }} in v.ephemeral.volumeClaimTemplate.metadata.labels && v.ephemeral.volumeClaimTemplate.metadata.labels[{{ $k | quote }}] == {{ $v | toString | quote }}))
+    {{- end }}
+    {{- range $k, $v := $root.Values.jobs.worker.volumeClaimLabels }}
+    - message: worker claims must carry volumeClaimLabel {{ $k }}
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || object.spec.template.spec.volumes.all(v, !has(v.ephemeral) || !has(v.ephemeral.volumeClaimTemplate) || (has(v.ephemeral.volumeClaimTemplate.metadata) && has(v.ephemeral.volumeClaimTemplate.metadata.labels) && {{ $k | quote }} in v.ephemeral.volumeClaimTemplate.metadata.labels && v.ephemeral.volumeClaimTemplate.metadata.labels[{{ $k | quote }}] == {{ $v | toString | quote }}))
+    {{- end }}
     {{- if not (kindIs "invalid" $root.Values.jobs.engine.hostUsers) }}
     - message: engine Jobs must set hostUsers consistently
       expression: >-
