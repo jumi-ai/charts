@@ -128,7 +128,11 @@ jobs:
           helm install jumi ./charts/jumi -n jumi-ci \
             -f charts/jumi/ci/gitea-values.yaml \
             --set postgres.enabled=true \
-            --set codex.enabled=true
+            --set codex.enabled=true \
+            --set jobs.engine.storageClass=standard \
+            --set jobs.worker.storageClass=standard \
+            --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
+            --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci wait --for=condition=ready pod -l app.kubernetes.io/component=control --timeout=300s
@@ -202,17 +206,47 @@ jobs:
                   "valueFrom": {"configMapKeyRef": {"name": "not-allowlisted", "key": "k"}},
               })
               Path(f"/tmp/{name}-configkeyref.json").write_text(json.dumps(v))
+              # extra pod-template label (e.g. a NetworkPolicy-selected label)
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-podlabel"
+              v["spec"]["template"]["metadata"].setdefault("labels", {})["cnpg.io/cluster"] = "evil"
+              Path(f"/tmp/{name}-podlabel.json").write_text(json.dumps(v))
+              # ephemeral claim with no storageClassName while one is configured
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-nosc"
+              for vol in v["spec"]["template"]["spec"]["volumes"]:
+                  claim = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("spec")
+                  if claim is not None and "storageClassName" in claim:
+                      del claim["storageClassName"]
+              Path(f"/tmp/{name}-nosc.json").write_text(json.dumps(v))
+              # ephemeral claim missing a configured volumeClaimLabels entry
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-claimlabel"
+              for vol in v["spec"]["template"]["spec"]["volumes"]:
+                  meta = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("metadata")
+                  if meta is not None and "labels" in meta:
+                      meta["labels"].pop("example.com/backup", None)
+              Path(f"/tmp/{name}-claimlabel.json").write_text(json.dumps(v))
+              # ephemeral claim with extra accessModes entry
+              v = json.loads(json.dumps(base))
+              v["metadata"]["name"] = f"e2e-{name}-accessmodes"
+              for vol in v["spec"]["template"]["spec"]["volumes"]:
+                  claim = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("spec")
+                  if claim is not None and "accessModes" in claim:
+                      claim["accessModes"] = ["ReadWriteOnce", "ReadWriteMany"]
+                      break
+              Path(f"/tmp/{name}-accessmodes.json").write_text(json.dumps(v))
           PY
           as_control="system:serviceaccount:jumi-ci:jumi-control"
           kubectl -n jumi-ci create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
           kubectl -n jumi-ci create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
-          for variant in hostpath envfrom image automount init-envfrom datasourceref configkeyref; do
+          for variant in hostpath envfrom image automount init-envfrom datasourceref configkeyref podlabel nosc claimlabel accessmodes; do
             for role in engine worker; do
               if kubectl -n jumi-ci create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
                 echo "policy admitted ${role}-${variant} for control SA" >&2
                 exit 1
               fi
-              grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|serviceAccount|automount|hostPath|secret|image" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
+              grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|serviceAccount|automount|hostPath|secret|image|storage|claim|accessModes|label" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
             done
           done
           # same commands as a different user are not matched by the policy:
@@ -297,7 +331,11 @@ jobs:
             -f charts/jumi/ci/gitea-values.yaml \
             --set postgres.enabled=true \
             --set codex.enabled=true \
-            --set networkPolicy.enabled=true
+            --set networkPolicy.enabled=true \
+            --set jobs.engine.storageClass=standard \
+            --set jobs.worker.storageClass=standard \
+            --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
+            --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable with networkPolicy')"
@@ -320,7 +358,11 @@ jobs:
             -f charts/jumi/ci/gitea-values.yaml \
             --set postgres.enabled=true \
             --set codex.enabled=true \
-            --set networkPolicy.enabled=true
+            --set networkPolicy.enabled=true \
+            --set jobs.engine.storageClass=standard \
+            --set jobs.worker.storageClass=standard \
+            --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
+            --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           got="$(kubectl -n jumi-ci get secret jumi-codex-token -o jsonpath='{.data.auth\.json}')"
           if [ -z "$got" ]; then
