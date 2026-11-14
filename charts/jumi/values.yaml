@@ -14,6 +14,12 @@ image:
 
 imagePullSecrets: []
 
+# Global kill switch for auto-merge. Repositories opt in through `.jumi.yml`,
+# issue/PR labels override per PR. Default true matches the app default.
+# Rendered into the router and both Job templates. There is no
+# JUMI_AUTOMERGE_REPOS value: it is deprecated.
+automergeEnabled: true
+
 # gitea (default) or github. GitHub means the installer creates their own App.
 forge: gitea
 
@@ -141,6 +147,11 @@ jobs:
   extraConfigMaps: []
   engine:
     timeoutMs: 1800000
+    # Deployer ceiling for the review run timeout (OPENCODE_TIMEOUT_MAX_MS).
+    # Unset means the app default. The Job deadline always covers the
+    # largest effective timeout this role can run, so raising this also
+    # raises activeDeadlineSeconds and LEASE_MS.
+    timeoutMaxMs: null
     # Per-role forge token as {name, key}. Empty = secret.existingSecret
     # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
     forgeTokenSecret:
@@ -173,6 +184,16 @@ jobs:
     hostUsers: null
   worker:
     timeoutMs: 14400000
+    # Deployer ceilings and per-kind run timeouts for worker Jobs.
+    # Unset means the app default. The Job deadline always covers the
+    # largest effective timeout this role can run (implement, follow-up,
+    # conflict), so raising any of these also raises
+    # activeDeadlineSeconds and LEASE_MS.
+    timeoutMaxMs: null
+    followupTimeoutMs: null
+    followupTimeoutMaxMs: null
+    conflictTimeoutMs: null
+    conflictTimeoutMaxMs: null
     # Per-role forge token as {name, key}. Empty = secret.existingSecret
     # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
     forgeTokenSecret:

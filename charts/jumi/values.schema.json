@@ -7,6 +7,9 @@
       "type": "string",
       "enum": ["gitea", "github"]
     },
+    "automergeEnabled": {
+      "type": "boolean"
+    },
     "opencode": {
       "type": "object",
       "properties": {
@@ -60,6 +63,8 @@
         "engine": {
           "type": "object",
           "properties": {
+            "timeoutMs": { "type": "integer", "minimum": 1 },
+            "timeoutMaxMs": { "type": ["integer", "null"], "minimum": 1 },
             "forgeTokenSecret": {
               "type": "object",
               "properties": {
@@ -75,6 +80,12 @@
         "worker": {
           "type": "object",
           "properties": {
+            "timeoutMs": { "type": "integer", "minimum": 1 },
+            "timeoutMaxMs": { "type": ["integer", "null"], "minimum": 1 },
+            "followupTimeoutMs": { "type": ["integer", "null"], "minimum": 1 },
+            "followupTimeoutMaxMs": { "type": ["integer", "null"], "minimum": 1 },
+            "conflictTimeoutMs": { "type": ["integer", "null"], "minimum": 1 },
+            "conflictTimeoutMaxMs": { "type": ["integer", "null"], "minimum": 1 },
             "forgeTokenSecret": {
               "type": "object",
               "properties": {

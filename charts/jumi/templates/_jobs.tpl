@@ -2,8 +2,9 @@
 {{- define "jumi.engineJobYaml" -}}
 {{- $root := . }}
 {{- $cfg := $root.Values.jobs.engine }}
-{{- $deadline := add (div $cfg.timeoutMs 1000) 1800 }}
-{{- $lease := add $cfg.timeoutMs 600000 }}
+{{- $effective := atoi (include "jumi.engineEffectiveTimeoutMs" $root) }}
+{{- $deadline := add (div $effective 1000) 1800 }}
+{{- $lease := add $effective 600000 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -69,8 +70,13 @@ spec:
               value: control-fills-in
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
+            {{- include "jumi.automergeEnv" $root | nindent 12 }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
+            {{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}
+            - name: OPENCODE_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.timeoutMaxMs) | quote }}
+            {{- end }}
             - name: LEASE_MS
               value: {{ printf "%.0f" (float64 $lease) | quote }}
             - name: HOME
@@ -226,8 +232,9 @@ spec:
 {{- define "jumi.workerJobYaml" -}}
 {{- $root := . }}
 {{- $cfg := $root.Values.jobs.worker }}
-{{- $deadline := add (div $cfg.timeoutMs 1000) 1800 }}
-{{- $lease := add $cfg.timeoutMs 600000 }}
+{{- $effective := atoi (include "jumi.workerEffectiveTimeoutMs" $root) }}
+{{- $deadline := add (div $effective 1000) 1800 }}
+{{- $lease := add $effective 600000 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -293,8 +300,29 @@ spec:
               value: control-fills-in
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
+            {{- include "jumi.automergeEnv" $root | nindent 12 }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
+            {{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}
+            - name: OPENCODE_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.timeoutMaxMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.followupTimeoutMs) }}
+            - name: FOLLOWUP_TIMEOUT_MS
+              value: {{ printf "%.0f" (float64 $cfg.followupTimeoutMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.followupTimeoutMaxMs) }}
+            - name: FOLLOWUP_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.followupTimeoutMaxMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.conflictTimeoutMs) }}
+            - name: CONFLICT_TIMEOUT_MS
+              value: {{ printf "%.0f" (float64 $cfg.conflictTimeoutMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.conflictTimeoutMaxMs) }}
+            - name: CONFLICT_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.conflictTimeoutMaxMs) | quote }}
+            {{- end }}
             - name: LEASE_MS
               value: {{ printf "%.0f" (float64 $lease) | quote }}
             - name: HOME

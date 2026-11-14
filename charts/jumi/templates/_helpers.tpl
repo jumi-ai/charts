@@ -121,6 +121,22 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if and .Values.control.dispatchWorker (lt (int .Values.control.workerMaxJobs) 1) }}
 {{- fail "control.workerMaxJobs must be at least 1 when control.dispatchWorker is true" }}
 {{- end }}
+{{- $blockedTimeouts := list "OPENCODE_TIMEOUT_MS" "OPENCODE_TIMEOUT_MAX_MS" "FOLLOWUP_TIMEOUT_MS" "FOLLOWUP_TIMEOUT_MAX_MS" "CONFLICT_TIMEOUT_MS" "CONFLICT_TIMEOUT_MAX_MS" "LEASE_MS" }}
+{{- range $e := .Values.jobs.extraEnv }}
+{{- if has $e.name $blockedTimeouts }}
+{{- fail (printf "jobs.extraEnv must not set %s: use jobs.engine/jobs.worker timeout values so activeDeadlineSeconds covers the largest effective lease" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.jobs.engine.extraEnv }}
+{{- if has $e.name $blockedTimeouts }}
+{{- fail (printf "jobs.engine.extraEnv must not set %s: use jobs.engine timeout values so activeDeadlineSeconds covers the largest effective lease" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.jobs.worker.extraEnv }}
+{{- if has $e.name $blockedTimeouts }}
+{{- fail (printf "jobs.worker.extraEnv must not set %s: use jobs.worker timeout values so activeDeadlineSeconds covers the largest effective lease" $e.name) }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- define "jumi.databaseSecretName" -}}
@@ -153,6 +169,11 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
       name: {{ include "jumi.databaseSecretName" . }}
       key: {{ include "jumi.databaseSecretKey" . }}
 {{- end }}
+{{- end }}
+
+{{- define "jumi.automergeEnv" -}}
+- name: JUMI_AUTOMERGE_ENABLED
+  value: {{ .Values.automergeEnabled | toString | quote }}
 {{- end }}
 
 {{- define "jumi.forgeEnv" -}}
@@ -219,6 +240,30 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- define "jumi.podSecurityContext" -}}
 {{- toYaml .Values.podSecurityContext }}
+{{- end }}
+
+{{/*
+Largest effective run timeout (ms) a Job role can run.
+Engine runs review; worker runs implement, follow-up and conflict.
+Unset means the app default: only set values can raise the ceiling, so the
+deadline only needs to cover the largest set value (timeoutMs always set).
+*/}}
+{{- define "jumi.engineEffectiveTimeoutMs" -}}
+{{- $cfg := .Values.jobs.engine -}}
+{{- $effective := $cfg.timeoutMs -}}
+{{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}{{ $effective = max $effective $cfg.timeoutMaxMs }}{{ end -}}
+{{- printf "%.0f" (float64 $effective) -}}
+{{- end }}
+
+{{- define "jumi.workerEffectiveTimeoutMs" -}}
+{{- $cfg := .Values.jobs.worker -}}
+{{- $effective := $cfg.timeoutMs -}}
+{{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}{{ $effective = max $effective $cfg.timeoutMaxMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.followupTimeoutMs) }}{{ $effective = max $effective $cfg.followupTimeoutMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.followupTimeoutMaxMs) }}{{ $effective = max $effective $cfg.followupTimeoutMaxMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.conflictTimeoutMs) }}{{ $effective = max $effective $cfg.conflictTimeoutMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.conflictTimeoutMaxMs) }}{{ $effective = max $effective $cfg.conflictTimeoutMaxMs }}{{ end -}}
+{{- printf "%.0f" (float64 $effective) -}}
 {{- end }}
 
 {{- define "jumi.containerSecurityContext" -}}

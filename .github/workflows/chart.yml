@@ -340,7 +340,7 @@ jobs:
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable with networkPolicy')"
           # a Job-labelled pod must not reach control:3010 when the CNI enforces policy
-          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.5.1 \
+          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.10.1 \
             --labels="app.kubernetes.io/name=jumi,app.kubernetes.io/instance=jumi,app.kubernetes.io/component=engine" \
             --command -- sleep 60
           kubectl -n jumi-ci wait --for=condition=ready pod/e2e-denied --timeout=120s
