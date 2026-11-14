@@ -84,6 +84,7 @@ spec:
               value: router
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.forgeEnv" $root | nindent 12 }}
+            {{- include "jumi.automergeEnv" $root | nindent 12 }}
             {{- with $root.Values.extraEnv }}
             {{ toYaml . | nindent 12 }}
             {{- end }}

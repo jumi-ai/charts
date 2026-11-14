@@ -25,12 +25,22 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set image.reviewer.tag=v10.10.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Split storageClass: one role pinned, the other unset. The chart's own Jobs
 # must still pass the chart's own gate (per-role exact rules admit this;
 # the generic union rule must stay permissive on presence).
 render split-sc -f "$chart/ci/gitea-values.yaml" \
   --set jobs.engine.storageClass=standard
+# Auto-merge off plus raised maxima: the deadline must still cover the
+# largest effective lease for each role.
+render automerge-off -f "$chart/ci/gitea-values.yaml" \
+  --set automergeEnabled=false
+render raised-max -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.engine.timeoutMaxMs=3600000 \
+  --set jobs.worker.timeoutMaxMs=21600000 \
+  --set jobs.worker.followupTimeoutMaxMs=21600000
+render raised-followup -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.worker.followupTimeoutMs=20000000
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -40,6 +50,24 @@ if helm template jumi "$chart" --namespace default \
   exit 1
 fi
 grep -F "gitea.allowedOrgs is required" "$work/bad.err" >/dev/null
+
+# Timeout/maximum env names must not bypass the deadline via extraEnv.
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set-json 'jobs.extraEnv=[{"name":"OPENCODE_TIMEOUT_MAX_MS","value":"21600000"}]' \
+  >"$work/bad-timeout.yaml" 2>"$work/bad-timeout.err"; then
+  echo "expected jobs.extraEnv OPENCODE_TIMEOUT_MAX_MS to fail the render" >&2
+  exit 1
+fi
+grep -F "jobs.extraEnv must not set OPENCODE_TIMEOUT_MAX_MS" "$work/bad-timeout.err" >/dev/null
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set-json 'jobs.worker.extraEnv=[{"name":"LEASE_MS","value":"1"}]' \
+  >"$work/bad-lease.yaml" 2>"$work/bad-lease.err"; then
+  echo "expected jobs.worker.extraEnv LEASE_MS to fail the render" >&2
+  exit 1
+fi
+grep -F "jobs.worker.extraEnv must not set LEASE_MS" "$work/bad-lease.err" >/dev/null
 
 python3 - "$work" <<'PY'
 import sys, json
@@ -77,9 +105,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v10.5.1" not in gitea:
+if "ghcr.io/jumi-ai/jumi-reviewer:v10.10.1" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v10.5.1" not in gitea:
+if "ghcr.io/jumi-ai/jumi-worker:v10.10.1" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -374,7 +402,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.5.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.10.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 # Split storageClass regression: engine pinned, worker unset.
@@ -401,5 +429,59 @@ if '"standard"' not in split:
     raise SystemExit("split-sc: policy union must still list the configured class")
 if "***" in (work / "postgres.yaml").read_text():
     raise SystemExit("bundled postgres URL has a literal placeholder")
+# Auto-merge: default renders true (or absent), off renders false in router + Jobs.
+gitea_docs = docs("gitea")
+router_doc = next(d for d in gitea_docs if has_kind_component(d, "Deployment", "router"))
+if "JUMI_AUTOMERGE_ENABLED" in router_doc:
+    if '"true"' not in router_doc and "'true'" not in router_doc and "true" not in router_doc:
+        raise SystemExit("gitea router JUMI_AUTOMERGE_ENABLED must be true by default")
+    if "value: \"false\"" in router_doc or "value: 'false'" in router_doc:
+        raise SystemExit("gitea router JUMI_AUTOMERGE_ENABLED must not be false by default")
+gitea_jobs = load_jobs("gitea")
+for role in ("engine", "worker"):
+    env = {e["name"]: e.get("value") for e in gitea_jobs[role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    if "JUMI_AUTOMERGE_ENABLED" in env and env["JUMI_AUTOMERGE_ENABLED"] != "true":
+        raise SystemExit(f"gitea/{role}: JUMI_AUTOMERGE_ENABLED must be true or absent by default")
+off_text = (work / "automerge-off.yaml").read_text()
+if off_text.count("JUMI_AUTOMERGE_ENABLED") < 3:
+    raise SystemExit("automerge-off must render JUMI_AUTOMERGE_ENABLED into router and both Job templates")
+off_docs = docs("automerge-off")
+off_router = next(d for d in off_docs if has_kind_component(d, "Deployment", "router"))
+if '"false"' not in off_router and "'false'" not in off_router and "value: false" not in off_router:
+    raise SystemExit("automerge-off router must set JUMI_AUTOMERGE_ENABLED=false")
+off_jobs = load_jobs("automerge-off")
+for role in ("engine", "worker"):
+    env = {e["name"]: e.get("value") for e in off_jobs[role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    if env.get("JUMI_AUTOMERGE_ENABLED") != "false":
+        raise SystemExit(f"automerge-off/{role}: JUMI_AUTOMERGE_ENABLED must be false")
+# Raised maxima: each Job deadline must exceed its largest effective lease.
+raised = load_jobs("raised-max")
+eng = raised["engine"]
+wor = raised["worker"]
+if eng["spec"].get("activeDeadlineSeconds") != 5400:
+    raise SystemExit(f"raised-max: engine deadline must be 3600000/1000+1800=5400, got {eng['spec'].get('activeDeadlineSeconds')}")
+if wor["spec"].get("activeDeadlineSeconds") != 23400:
+    raise SystemExit(f"raised-max: worker deadline must be 21600000/1000+1800=23400, got {wor['spec'].get('activeDeadlineSeconds')}")
+for role, job in raised.items():
+    env = {e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    lease = int(env["LEASE_MS"])
+    if job["spec"]["activeDeadlineSeconds"] * 1000 <= lease:
+        raise SystemExit(f"raised-max/{role}: deadline must exceed largest effective lease")
+    # ceiling envs must render
+    if role == "engine" and env.get("OPENCODE_TIMEOUT_MAX_MS") != "3600000":
+        raise SystemExit("raised-max/engine: OPENCODE_TIMEOUT_MAX_MS missing")
+    if role == "worker" and env.get("OPENCODE_TIMEOUT_MAX_MS") != "21600000":
+        raise SystemExit("raised-max/worker: OPENCODE_TIMEOUT_MAX_MS missing")
+    if role == "worker" and env.get("FOLLOWUP_TIMEOUT_MAX_MS") != "21600000":
+        raise SystemExit("raised-max/worker: FOLLOWUP_TIMEOUT_MAX_MS missing")
+raised_fu = load_jobs("raised-followup")
+fu = raised_fu["worker"]
+if fu["spec"].get("activeDeadlineSeconds") != 21800:
+    raise SystemExit(f"raised-followup: worker deadline must be 20000000/1000+1800=21800, got {fu['spec'].get('activeDeadlineSeconds')}")
+fu_env = {e["name"]: e.get("value") for e in fu["spec"]["template"]["spec"]["containers"][0]["env"]}
+if fu_env.get("FOLLOWUP_TIMEOUT_MS") != "20000000":
+    raise SystemExit("raised-followup/worker: FOLLOWUP_TIMEOUT_MS missing")
+if fu["spec"]["activeDeadlineSeconds"] * 1000 <= int(fu_env["LEASE_MS"]):
+    raise SystemExit("raised-followup/worker: deadline must exceed largest effective lease")
 print("render-check ok")
 PY

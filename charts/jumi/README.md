@@ -4,13 +4,13 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.3.0` is tested against image tag `v10.5.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.4.0` is tested against image tag `v10.10.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
 - **router** — Deployment, the only public webhook. Reviewer image, `JUMI_ROLE=router`. Port 3000 is webhooks/`/healthz`/metrics. Port 3001 is the operator board.
 - **control** — StatefulSet with 1 replica, `args: [bun, run, src/control.ts]`. Owns the Codex login and dispatches one Kubernetes Job per ledger row. Its ServiceAccount is the only Jumi identity with `automountServiceAccountToken: true`.
-- **Job templates** — ConfigMap with `engine.json` (reviewer image) and `worker.json` (worker image). Each is a full `batch/v1` Job: `args: [bun, run, src/job.ts]`, `backoffLimit: 0`, `activeDeadlineSeconds = timeoutMs/1000 + 1800`, `ttlSecondsAfterFinished: 3600`, `restartPolicy: Never`. Mounted read-only into control at `/etc/jumi/jobs`.
+- **Job templates** — ConfigMap with `engine.json` (reviewer image) and `worker.json` (worker image). Each is a full `batch/v1` Job: `args: [bun, run, src/job.ts]`, `backoffLimit: 0`, `activeDeadlineSeconds = largestEffectiveTimeoutMs/1000 + 1800`, `ttlSecondsAfterFinished: 3600`, `restartPolicy: Never`. Mounted read-only into control at `/etc/jumi/jobs`.
 - **Admission policy** — `ValidatingAdmissionPolicy` + Binding that only matches Job CREATE/UPDATE as the control ServiceAccount and checks images, service account, security context, volumes, env allowlists, and role labels. Without it, Job create can read every Secret in the namespace.
 - Optional bundled Postgres. Otherwise you bring `DATABASE_URL`.
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.3.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.4.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -128,6 +128,10 @@ helm install jumi ./charts/jumi ... \
 
 Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, requests `100m/512Mi`, limit `4Gi`). Worker rows use the worker image (`jobs.worker.timeoutMs` default 14400000, requests `100m/512Mi`, limit `8Gi`).
 
+Timeouts, maxima and the deadline: each Job role runs one or more run kinds (engine: review; worker: implement, follow-up, conflict). `jobs.engine.timeoutMs` sets the review run timeout (`OPENCODE_TIMEOUT_MS`); `jobs.worker.timeoutMs` sets the implement run timeout. The matching `...TimeoutMaxMs` / `timeoutMaxMs` / `followupTimeoutMs` / `followupTimeoutMaxMs` / `conflictTimeoutMs` / `conflictTimeoutMaxMs` values (`jobs.engine.timeoutMaxMs`, `jobs.worker.timeoutMaxMs`, `jobs.worker.followupTimeoutMs`, `jobs.worker.followupTimeoutMaxMs`, `jobs.worker.conflictTimeoutMs`, `jobs.worker.conflictTimeoutMaxMs`, all unset by default) set the deployer ceilings (`OPENCODE_TIMEOUT_MAX_MS`, `FOLLOWUP_TIMEOUT_MS`, `FOLLOWUP_TIMEOUT_MAX_MS`, `CONFLICT_TIMEOUT_MS`, `CONFLICT_TIMEOUT_MAX_MS`) and the non-implement run timeouts. Unset means the app default. A repository's `.jumi.yml` `timeouts` may pick a run timeout up to its deployer maximum; the app then extends the lease to `max(LEASE_MS, effective timeout + 10m)`. The chart derives each role's `activeDeadlineSeconds` (`largestEffectiveTimeoutMs/1000 + 1800`) and `LEASE_MS` (`largestEffectiveTimeoutMs + 600000`) from the largest effective timeout that role can run, so the deadline always exceeds the largest effective lease the app can take. Per-repository behaviour (trusted senders, pickup label, `ignore_conflicts_label`, auto-merge label names, per-repo timeouts) lives in each repository's `.jumi.yml`, not in chart values. The render fails if `jobs.extraEnv` or `jobs.<role>.extraEnv` sets any timeout/maximum/`LEASE_MS` env name directly; use the timeout values above so the deadline stays correct.
+
+Auto-merge: `automergeEnabled` (default `true`, matching the app default) renders `JUMI_AUTOMERGE_ENABLED` into the router and both Job templates. It is the deployer's global kill switch; repositories opt in through `.jumi.yml` and issue/PR labels override per PR. There is no `JUMI_AUTOMERGE_REPOS` value: it is deprecated.
+
 - `jobs.engine/worker.storageClass`, `homeSize` (default 10Gi), `workSize` (default 8Gi), `tmpSize` (default 4Gi) size the generic ephemeral `home`/`work`/`tmp` volumes. `/tmp` is disk-backed so agent tools, uv caches and venvs do not exhaust a tmpfs.
 - Each Job also mounts a 1Mi memory `emptyDir` at `/run/jumi-secrets` with `JUMI_SECRETS_DIR=/run/jumi-secrets`, so the entrypoint's scrubbed secrets file stays off disk.
 - `jobs.extraEnv` / `jobs.extraEnvFrom` (plus per-role `jobs.engine/ worker.extraEnv` / `extraEnvFrom`) add env to both Jobs. Referenced Secrets and ConfigMaps are auto-allowlisted in the admission policy.
@@ -159,6 +163,14 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.3.0
+
+- Chart `0.4.0` pins Jumi `v10.10.1`. `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- New value: `automergeEnabled` (default `true`). Renders `JUMI_AUTOMERGE_ENABLED` into the router and both Job templates. No `JUMI_AUTOMERGE_REPOS`: deprecated, repositories opt in through `.jumi.yml`.
+- New values: `jobs.engine.timeoutMaxMs`, `jobs.worker.timeoutMaxMs`, `jobs.worker.followupTimeoutMs`, `jobs.worker.followupTimeoutMaxMs`, `jobs.worker.conflictTimeoutMs`, `jobs.worker.conflictTimeoutMaxMs` (all unset by default = app default). Each role's `activeDeadlineSeconds` and `LEASE_MS` now derive from the largest effective timeout that role can run. The render fails if `jobs.extraEnv` / `jobs.<role>.extraEnv` sets a timeout/maximum/`LEASE_MS` env name; use the values above.
+- Already running but unpublished on `main` after 0.3.0 (no version bump, so not yet published): `router.hostUsers` / `control.hostUsers` (null default, same semantics as `jobs.<role>.hostUsers`); `router.extraEnv` / `router.extraEnvFrom` and `control.extraEnv` / `control.extraEnvFrom` (top-level `extraEnv` / `extraEnvFrom` still render into both); tighter Job admission (pod-template labels restricted to chart keys plus role `podLabels` plus controller labels, ephemeral claims require `accessModes == ["ReadWriteOnce"]`, per-role exact `storageClassName`, each configured `volumeClaimLabels` entry).
+- Jumi `JUMI_CHECKPOINT_*` (v10.6.0, optional with app defaults) needs no chart value; `jobs.extraEnv` is enough. `.jumi.yml` settings (trusted senders, pickup label, `ignore_conflicts_label`, auto-merge label names, per-repo timeouts) stay in each repository, not in chart values.
 
 ## Upgrade from 0.2.0
 
