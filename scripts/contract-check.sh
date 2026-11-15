@@ -224,6 +224,9 @@ def check_render(name):
             # /gradle-seed is mounted only when GRADLE_SEED_HOME is set; without it the job runs cold.
             if vol == "/gradle-seed" and "GRADLE_SEED_HOME" not in env:
                 continue
+            # /cache is mounted only when JUMI_CACHE_DIR is set; without it the job keeps per-pod caches under $WORKDIR.
+            if vol == "/cache" and "JUMI_CACHE_DIR" not in env:
+                continue
             if vol not in mounts:
                 raise SystemExit(f"{name}/{role} job: missing volume mount {vol}")
         if image_part not in c.get("image", ""):

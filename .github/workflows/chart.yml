@@ -131,6 +131,8 @@ jobs:
             --set codex.enabled=true \
             --set jobs.engine.storageClass=standard \
             --set jobs.worker.storageClass=standard \
+            --set jobs.worker.cache.enabled=true \
+            --set jobs.worker.cache.existingClaim=jumi-cache \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
@@ -236,6 +238,19 @@ jobs:
                       claim["accessModes"] = ["ReadWriteOnce", "ReadWriteMany"]
                       break
               Path(f"/tmp/{name}-accessmodes.json").write_text(json.dumps(v))
+          # cache-claim variants: worker with another claim, engine with the cache claim
+          wbase = json.loads(Path("/tmp/worker.json").read_text())
+          w = json.loads(json.dumps(wbase))
+          w["metadata"]["name"] = "e2e-worker-pvc-other"
+          w["spec"]["template"]["spec"]["volumes"].append({"name": "bad-cache", "persistentVolumeClaim": {"claimName": "other-claim"}})
+          w["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad-cache", "mountPath": "/bad-cache"})
+          Path("/tmp/worker-pvc-other.json").write_text(json.dumps(w))
+          ebase = json.loads(Path("/tmp/engine.json").read_text())
+          e = json.loads(json.dumps(ebase))
+          e["metadata"]["name"] = "e2e-engine-cache"
+          e["spec"]["template"]["spec"]["volumes"].append({"name": "cache", "persistentVolumeClaim": {"claimName": "jumi-cache"}})
+          e["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "cache", "mountPath": "/cache"})
+          Path("/tmp/engine-cache.json").write_text(json.dumps(e))
           PY
           as_control="system:serviceaccount:jumi-ci:jumi-control"
           kubectl -n jumi-ci create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
@@ -248,6 +263,13 @@ jobs:
               fi
               grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|serviceAccount|automount|hostPath|secret|image|storage|claim|accessModes|label" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
             done
+          done
+          for f in worker-pvc-other engine-cache; do
+            if kubectl -n jumi-ci create -f "/tmp/${f}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
+              echo "policy admitted ${f} for control SA" >&2
+              exit 1
+            fi
+            grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|persistentVolumeClaim|claim" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
           done
           # same commands as a different user are not matched by the policy:
           # no denial message from the policy itself
@@ -334,13 +356,15 @@ jobs:
             --set networkPolicy.enabled=true \
             --set jobs.engine.storageClass=standard \
             --set jobs.worker.storageClass=standard \
+            --set jobs.worker.cache.enabled=true \
+            --set jobs.worker.cache.existingClaim=jumi-cache \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
           kubectl -n jumi-ci exec deployment/jumi-router -- python3 -c "import socket; s=socket.create_connection(('control',3010),timeout=5); s.close(); print('control:3010 reachable with networkPolicy')"
           # a Job-labelled pod must not reach control:3010 when the CNI enforces policy
-          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v10.10.1 \
+          kubectl -n jumi-ci run e2e-denied --image=ghcr.io/jumi-ai/jumi-reviewer:v11.1.15 \
             --labels="app.kubernetes.io/name=jumi,app.kubernetes.io/instance=jumi,app.kubernetes.io/component=engine" \
             --command -- sleep 60
           kubectl -n jumi-ci wait --for=condition=ready pod/e2e-denied --timeout=120s
@@ -361,6 +385,8 @@ jobs:
             --set networkPolicy.enabled=true \
             --set jobs.engine.storageClass=standard \
             --set jobs.worker.storageClass=standard \
+            --set jobs.worker.cache.enabled=true \
+            --set jobs.worker.cache.existingClaim=jumi-cache \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s

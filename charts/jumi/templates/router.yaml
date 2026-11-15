@@ -85,6 +85,12 @@ spec:
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.forgeEnv" $root | nindent 12 }}
             {{- include "jumi.automergeEnv" $root | nindent 12 }}
+            {{- include "jumi.gitEnv" $root | nindent 12 }}
+            {{- include "jumi.phoenixEnv" $root | nindent 12 }}
+            {{- if $root.Values.jobs.engine.allowUnsandboxedReviews }}
+            - name: JUMI_ALLOW_UNSANDBOXED_REVIEWS
+              value: "1"
+            {{- end }}
             {{- with $root.Values.extraEnv }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
