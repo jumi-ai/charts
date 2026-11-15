@@ -121,7 +121,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if and .Values.control.dispatchWorker (lt (int .Values.control.workerMaxJobs) 1) }}
 {{- fail "control.workerMaxJobs must be at least 1 when control.dispatchWorker is true" }}
 {{- end }}
-{{- $blockedTimeouts := list "OPENCODE_TIMEOUT_MS" "OPENCODE_TIMEOUT_MAX_MS" "FOLLOWUP_TIMEOUT_MS" "FOLLOWUP_TIMEOUT_MAX_MS" "CONFLICT_TIMEOUT_MS" "CONFLICT_TIMEOUT_MAX_MS" "LEASE_MS" }}
+{{- $blockedTimeouts := list "OPENCODE_TIMEOUT_MS" "OPENCODE_TIMEOUT_MAX_MS" "FOLLOWUP_TIMEOUT_MS" "FOLLOWUP_TIMEOUT_MAX_MS" "CONFLICT_TIMEOUT_MS" "CONFLICT_TIMEOUT_MAX_MS" "SETUP_TIMEOUT_MAX_MS" "LEASE_MS" }}
 {{- range $e := .Values.jobs.extraEnv }}
 {{- if has $e.name $blockedTimeouts }}
 {{- fail (printf "jobs.extraEnv must not set %s: use jobs.engine/jobs.worker timeout values so activeDeadlineSeconds covers the largest effective lease" $e.name) }}
@@ -136,6 +136,9 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if has $e.name $blockedTimeouts }}
 {{- fail (printf "jobs.worker.extraEnv must not set %s: use jobs.worker timeout values so activeDeadlineSeconds covers the largest effective lease" $e.name) }}
 {{- end }}
+{{- end }}
+{{- if and .Values.jobs.worker.cache.enabled (not .Values.jobs.worker.cache.existingClaim) }}
+{{- fail "jobs.worker.cache.existingClaim is required when jobs.worker.cache.enabled" }}
 {{- end }}
 {{- end }}
 
@@ -238,6 +241,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 {{- end }}
 
+{{- define "jumi.gitEnv" -}}
+{{- with .Values.git.name }}
+- name: JUMI_GIT_NAME
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.git.email }}
+- name: JUMI_GIT_EMAIL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+
+{{- define "jumi.phoenixEnv" -}}
+{{- with .Values.phoenix.publicHost }}
+- name: PHOENIX_PUBLIC_HOST
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+
 {{- define "jumi.podSecurityContext" -}}
 {{- toYaml .Values.podSecurityContext }}
 {{- end }}
@@ -252,6 +273,7 @@ deadline only needs to cover the largest set value (timeoutMs always set).
 {{- $cfg := .Values.jobs.engine -}}
 {{- $effective := $cfg.timeoutMs -}}
 {{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}{{ $effective = max $effective $cfg.timeoutMaxMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.setupTimeoutMaxMs) }}{{ $effective = max $effective $cfg.setupTimeoutMaxMs }}{{ end -}}
 {{- printf "%.0f" (float64 $effective) -}}
 {{- end }}
 
@@ -263,6 +285,7 @@ deadline only needs to cover the largest set value (timeoutMs always set).
 {{- if not (kindIs "invalid" $cfg.followupTimeoutMaxMs) }}{{ $effective = max $effective $cfg.followupTimeoutMaxMs }}{{ end -}}
 {{- if not (kindIs "invalid" $cfg.conflictTimeoutMs) }}{{ $effective = max $effective $cfg.conflictTimeoutMs }}{{ end -}}
 {{- if not (kindIs "invalid" $cfg.conflictTimeoutMaxMs) }}{{ $effective = max $effective $cfg.conflictTimeoutMaxMs }}{{ end -}}
+{{- if not (kindIs "invalid" $cfg.setupTimeoutMaxMs) }}{{ $effective = max $effective $cfg.setupTimeoutMaxMs }}{{ end -}}
 {{- printf "%.0f" (float64 $effective) -}}
 {{- end }}
 

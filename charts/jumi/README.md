@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.4.0` is tested against image tag `v10.10.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.5.0` is tested against image tag `v11.1.15`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.4.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.5.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -128,11 +128,17 @@ helm install jumi ./charts/jumi ... \
 
 Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, requests `100m/512Mi`, limit `4Gi`). Worker rows use the worker image (`jobs.worker.timeoutMs` default 14400000, requests `100m/512Mi`, limit `8Gi`).
 
-Timeouts, maxima and the deadline: each Job role runs one or more run kinds (engine: review; worker: implement, follow-up, conflict). `jobs.engine.timeoutMs` sets the review run timeout (`OPENCODE_TIMEOUT_MS`); `jobs.worker.timeoutMs` sets the implement run timeout. The matching `...TimeoutMaxMs` / `timeoutMaxMs` / `followupTimeoutMs` / `followupTimeoutMaxMs` / `conflictTimeoutMs` / `conflictTimeoutMaxMs` values (`jobs.engine.timeoutMaxMs`, `jobs.worker.timeoutMaxMs`, `jobs.worker.followupTimeoutMs`, `jobs.worker.followupTimeoutMaxMs`, `jobs.worker.conflictTimeoutMs`, `jobs.worker.conflictTimeoutMaxMs`, all unset by default) set the deployer ceilings (`OPENCODE_TIMEOUT_MAX_MS`, `FOLLOWUP_TIMEOUT_MS`, `FOLLOWUP_TIMEOUT_MAX_MS`, `CONFLICT_TIMEOUT_MS`, `CONFLICT_TIMEOUT_MAX_MS`) and the non-implement run timeouts. Unset means the app default. A repository's `.jumi.yml` `timeouts` may pick a run timeout up to its deployer maximum; the app then extends the lease to `max(LEASE_MS, effective timeout + 10m)`. The chart derives each role's `activeDeadlineSeconds` (`largestEffectiveTimeoutMs/1000 + 1800`) and `LEASE_MS` (`largestEffectiveTimeoutMs + 600000`) from the largest effective timeout that role can run, so the deadline always exceeds the largest effective lease the app can take. Per-repository behaviour (trusted senders, pickup label, `ignore_conflicts_label`, auto-merge label names, per-repo timeouts) lives in each repository's `.jumi.yml`, not in chart values. The render fails if `jobs.extraEnv` or `jobs.<role>.extraEnv` sets any timeout/maximum/`LEASE_MS` env name directly; use the timeout values above so the deadline stays correct.
+Timeouts, maxima and the deadline: each Job role runs one or more run kinds (engine: review; worker: implement, follow-up, conflict). `jobs.engine.timeoutMs` sets the review run timeout (`OPENCODE_TIMEOUT_MS`); `jobs.worker.timeoutMs` sets the implement run timeout. The matching `...TimeoutMaxMs` / `timeoutMaxMs` / `followupTimeoutMs` / `followupTimeoutMaxMs` / `conflictTimeoutMs` / `conflictTimeoutMaxMs` values (`jobs.engine.timeoutMaxMs`, `jobs.worker.timeoutMaxMs`, `jobs.worker.followupTimeoutMs`, `jobs.worker.followupTimeoutMaxMs`, `jobs.worker.conflictTimeoutMs`, `jobs.worker.conflictTimeoutMaxMs`, all unset by default) set the deployer ceilings (`OPENCODE_TIMEOUT_MAX_MS`, `FOLLOWUP_TIMEOUT_MS`, `FOLLOWUP_TIMEOUT_MAX_MS`, `CONFLICT_TIMEOUT_MS`, `CONFLICT_TIMEOUT_MAX_MS`) and the non-implement run timeouts. `jobs.engine.setupTimeoutMaxMs` / `jobs.worker.setupTimeoutMaxMs` (null = app default 10 minutes) set the repository `setup` command ceiling (`SETUP_TIMEOUT_MAX_MS`); setup does not extend the job timeout or queue lease, so raising it also raises that role's deadline and lease. Unset means the app default. A repository's `.jumi.yml` `timeouts` may pick a run timeout up to its deployer maximum; the app then extends the lease to `max(LEASE_MS, effective timeout + 10m)`. The chart derives each role's `activeDeadlineSeconds` (`largestEffectiveTimeoutMs/1000 + 1800`) and `LEASE_MS` (`largestEffectiveTimeoutMs + 600000`) from the largest effective timeout that role can run (including the setup maximum), so the deadline always exceeds the largest effective lease the app can take. Per-repository behaviour (trusted senders, pickup label, `ignore_conflicts_label`, auto-merge label names, per-repo timeouts) lives in each repository's `.jumi.yml`, not in chart values. The render fails if `jobs.extraEnv` or `jobs.<role>.extraEnv` sets any timeout/maximum/`LEASE_MS`/`SETUP_TIMEOUT_MAX_MS` env name directly; use the timeout values above so the deadline stays correct.
 
 Auto-merge: `automergeEnabled` (default `true`, matching the app default) renders `JUMI_AUTOMERGE_ENABLED` into the router and both Job templates. It is the deployer's global kill switch; repositories opt in through `.jumi.yml` and issue/PR labels override per PR. There is no `JUMI_AUTOMERGE_REPOS` value: it is deprecated.
 
 - `jobs.engine/worker.storageClass`, `homeSize` (default 10Gi), `workSize` (default 8Gi), `tmpSize` (default 4Gi) size the generic ephemeral `home`/`work`/`tmp` volumes. `/tmp` is disk-backed so agent tools, uv caches and venvs do not exhaust a tmpfs.
+- `jobs.worker.cache` (off by default) mounts a deployer-supplied persistent claim at `/cache` with `JUMI_CACHE_DIR=/cache` (`cache.enabled=true` + `cache.existingClaim=<pvc>`). The point is persistence across Jobs, so a per-Job ephemeral claim does not help; use a `ReadWriteMany` claim when several worker Jobs run at once. Caches live under `<JUMI_CACHE_DIR>/<owner>/<repo>/`. Engine Jobs stay as they are (the contract lists no `JUMI_CACHE_DIR` for the reviewer role).
+- Git identity: `git.name` / `git.email` (both empty by default) render `JUMI_GIT_NAME` / `JUMI_GIT_EMAIL` into the router and both Job templates. Empty means Jumi's own defaults (`jumi` / `jumi@localhost`); set both to sign work with a real committer identity.
+- Phoenix: `phoenix.publicHost` (empty by default = no public-host check) renders `PHOENIX_PUBLIC_HOST` into the router and both Job templates.
+- Review sandbox: engine Jobs need a node kernel with Landlock ABI >= 6, otherwise reviews fail closed (`review spawn refused: Landlock sandbox unavailable ...`). `jobs.engine.allowUnsandboxedReviews` (default `false`) renders `JUMI_ALLOW_UNSANDBOXED_REVIEWS=1` into the router and engine Jobs. It is a rollout escape hatch, not a setting to keep on.
+- `JUMI_SEARXNG_URL` (optional `http(s)` base URL of a deployer-run SearXNG instance) needs no chart value; `jobs.extraEnv` is enough.
+- `MAX_FILES_MAX` / `MAX_PATCH_BYTES_MAX` (review budget ceilings) need no chart value; `jobs.extraEnv` is enough.
 - Each Job also mounts a 1Mi memory `emptyDir` at `/run/jumi-secrets` with `JUMI_SECRETS_DIR=/run/jumi-secrets`, so the entrypoint's scrubbed secrets file stays off disk.
 - `jobs.extraEnv` / `jobs.extraEnvFrom` (plus per-role `jobs.engine/ worker.extraEnv` / `extraEnvFrom`) add env to both Jobs. Referenced Secrets and ConfigMaps are auto-allowlisted in the admission policy.
 - `jobs.extraConfigMaps` (plus per-role) mounts extra ConfigMaps into Jobs: `{name, mountPath}`. Names are auto-allowlisted.
@@ -163,6 +169,16 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.4.0
+
+- Chart `0.5.0` pins Jumi `v11.1.15`. `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- Breaking (v11.0.0): homelab defaults moved into deployment config. New values, all unset by default: `git.name` / `git.email` (`JUMI_GIT_NAME` default `jumi`, `JUMI_GIT_EMAIL` default `jumi@localhost`) into the router and both Job templates; `phoenix.publicHost` (`PHOENIX_PUBLIC_HOST`, unset = no public-host check) into the router and both Job templates. Installers who want a real committer identity must set `git.name` / `git.email`. `opencode.wellKnownUrl` still renders explicitly (default `disabled`); unset now means disabled upstream instead of defaulting to `https://kirmanak.stream`.
+- New values: `jobs.worker.cache` (`enabled: false` + `existingClaim: ""`) mounts the named persistent claim at `/cache` with `JUMI_CACHE_DIR=/cache` on worker Jobs only; the admission policy admits exactly that claim on worker Jobs and nothing when the cache is off.
+- New value: `jobs.engine.allowUnsandboxedReviews` (default `false`) renders `JUMI_ALLOW_UNSANDBOXED_REVIEWS=1` into the router and engine Jobs. Nodes need Landlock ABI >= 6 for engine Jobs; the escape hatch is for rollout only.
+- New values: `jobs.engine.setupTimeoutMaxMs` / `jobs.worker.setupTimeoutMaxMs` (null = app default 10 minutes) render `SETUP_TIMEOUT_MAX_MS` and feed the role's `activeDeadlineSeconds` / `LEASE_MS` derivation. `SETUP_TIMEOUT_MAX_MS` in any `extraEnv` now fails the render.
+- Docs only, `extraEnv` is enough: `JUMI_SEARXNG_URL`, `MAX_FILES_MAX` / `MAX_PATCH_BYTES_MAX`.
+- Jumi `JUMI_GIT_*`, `PHOENIX_PUBLIC_HOST`, `JUMI_CACHE_DIR`, `JUMI_ALLOW_UNSANDBOXED_REVIEWS`, `SETUP_TIMEOUT_MAX_MS` need no per-repository setting; `.jumi.yml` `setup` / `review_budget` ceilings combine with the deployer maxima above.
 
 ## Upgrade from 0.3.0
 

@@ -25,7 +25,7 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v10.10.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set image.reviewer.tag=v11.1.15@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Split storageClass: one role pinned, the other unset. The chart's own Jobs
 # must still pass the chart's own gate (per-role exact rules admit this;
 # the generic union rule must stay permissive on presence).
@@ -41,6 +41,18 @@ render raised-max -f "$chart/ci/gitea-values.yaml" \
   --set jobs.worker.followupTimeoutMaxMs=21600000
 render raised-followup -f "$chart/ci/gitea-values.yaml" \
   --set jobs.worker.followupTimeoutMs=20000000
+render git-phoenix -f "$chart/ci/gitea-values.yaml" \
+  --set git.name=jumi-ci \
+  --set git.email=jumi-ci@example \
+  --set phoenix.publicHost=phoenix.example
+render cache -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.worker.cache.enabled=true \
+  --set jobs.worker.cache.existingClaim=jumi-cache
+render unsandboxed -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.engine.allowUnsandboxedReviews=true
+render setup-max -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.engine.setupTimeoutMaxMs=3600000 \
+  --set jobs.worker.setupTimeoutMaxMs=21600000
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -68,6 +80,14 @@ if helm template jumi "$chart" --namespace default \
   exit 1
 fi
 grep -F "jobs.worker.extraEnv must not set LEASE_MS" "$work/bad-lease.err" >/dev/null
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set-json 'jobs.engine.extraEnv=[{"name":"SETUP_TIMEOUT_MAX_MS","value":"1"}]' \
+  >"$work/bad-setup.yaml" 2>"$work/bad-setup.err"; then
+  echo "expected jobs.engine.extraEnv SETUP_TIMEOUT_MAX_MS to fail the render" >&2
+  exit 1
+fi
+grep -F "jobs.engine.extraEnv must not set SETUP_TIMEOUT_MAX_MS" "$work/bad-setup.err" >/dev/null
 
 python3 - "$work" <<'PY'
 import sys, json
@@ -105,9 +125,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v10.10.1" not in gitea:
+if "ghcr.io/jumi-ai/jumi-reviewer:v11.1.15" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v10.10.1" not in gitea:
+if "ghcr.io/jumi-ai/jumi-worker:v11.1.15" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -402,7 +422,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v10.10.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = "ghcr.io/jumi-ai/jumi-reviewer:v11.1.15@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 # Split storageClass regression: engine pinned, worker unset.
@@ -483,5 +503,77 @@ if fu_env.get("FOLLOWUP_TIMEOUT_MS") != "20000000":
     raise SystemExit("raised-followup/worker: FOLLOWUP_TIMEOUT_MS missing")
 if fu["spec"]["activeDeadlineSeconds"] * 1000 <= int(fu_env["LEASE_MS"]):
     raise SystemExit("raised-followup/worker: deadline must exceed largest effective lease")
+# Default render carries none of the new deploy keys.
+for _key in ("JUMI_GIT_NAME", "JUMI_GIT_EMAIL", "PHOENIX_PUBLIC_HOST", "JUMI_CACHE_DIR", "JUMI_ALLOW_UNSANDBOXED_REVIEWS", "SETUP_TIMEOUT_MAX_MS"):
+    if _key in gitea:
+        raise SystemExit(f"default gitea render must not set {_key}")
+if '"mountPath": "/cache"' in gitea or "mountPath: /cache" in gitea:
+    raise SystemExit("default gitea render must not mount /cache")
+# git.* / phoenix.publicHost set -> env present on router and both Job templates.
+git_text = (work / "git-phoenix.yaml").read_text()
+for _key, _val in (("JUMI_GIT_NAME", "jumi-ci"), ("JUMI_GIT_EMAIL", "jumi-ci@example"), ("PHOENIX_PUBLIC_HOST", "phoenix.example")):
+    if git_text.count(_key) < 3:
+        raise SystemExit(f"git-phoenix must render {_key} into router and both Job templates, got {git_text.count(_key)}")
+    if _val not in git_text:
+        raise SystemExit(f"git-phoenix missing value {_val} for {_key}")
+git_docs = docs("git-phoenix")
+git_router = next(d for d in git_docs if has_kind_component(d, "Deployment", "router"))
+for _key in ("JUMI_GIT_NAME", "JUMI_GIT_EMAIL", "PHOENIX_PUBLIC_HOST"):
+    if _key not in git_router:
+        raise SystemExit(f"git-phoenix router missing {_key}")
+git_jobs = load_jobs("git-phoenix")
+for _role in ("engine", "worker"):
+    _env = {e["name"]: e.get("value") for e in git_jobs[_role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    for _key in ("JUMI_GIT_NAME", "JUMI_GIT_EMAIL", "PHOENIX_PUBLIC_HOST"):
+        if _key not in _env:
+            raise SystemExit(f"git-phoenix/{_role}: {_key} missing")
+# worker cache enabled -> worker Job mounts the named claim with JUMI_CACHE_DIR, engine does not, policy names the claim.
+cache_jobs = load_jobs("cache")
+_cache_worker = cache_jobs["worker"]
+_cache_wenv = {e["name"]: e.get("value") for e in _cache_worker["spec"]["template"]["spec"]["containers"][0]["env"]}
+if _cache_wenv.get("JUMI_CACHE_DIR") != "/cache":
+    raise SystemExit("cache/worker: JUMI_CACHE_DIR must be /cache")
+_wmounts = {m["mountPath"]: m["name"] for m in _cache_worker["spec"]["template"]["spec"]["containers"][0].get("volumeMounts", [])}
+if _wmounts.get("/cache") != "cache":
+    raise SystemExit("cache/worker: /cache mount missing")
+_wvols = {v["name"]: v for v in _cache_worker["spec"]["template"]["spec"].get("volumes", [])}
+if "cache" not in _wvols or (_wvols["cache"].get("persistentVolumeClaim") or {}).get("claimName") != "jumi-cache":
+    raise SystemExit("cache/worker: cache volume must be persistentVolumeClaim jumi-cache")
+_cache_engine = cache_jobs["engine"]
+_cache_eenv = {e["name"]: e.get("value") for e in _cache_engine["spec"]["template"]["spec"]["containers"][0]["env"]}
+if "JUMI_CACHE_DIR" in _cache_eenv:
+    raise SystemExit("cache/engine: must not set JUMI_CACHE_DIR")
+_emounts = {m["mountPath"] for m in _cache_engine["spec"]["template"]["spec"]["containers"][0].get("volumeMounts", [])}
+if "/cache" in _emounts:
+    raise SystemExit("cache/engine: must not mount /cache")
+cache_text = (work / "cache.yaml").read_text()
+if '"jumi-cache"' not in cache_text and "'jumi-cache'" not in cache_text and "jumi-cache" not in cache_text:
+    raise SystemExit("cache: admission policy must name the cache claim")
+# allowUnsandboxedReviews=true -> JUMI_ALLOW_UNSANDBOXED_REVIEWS=1 on engine Jobs (and router).
+unsandboxed_jobs = load_jobs("unsandboxed")
+_uenv = {e["name"]: e.get("value") for e in unsandboxed_jobs["engine"]["spec"]["template"]["spec"]["containers"][0]["env"]}
+if _uenv.get("JUMI_ALLOW_UNSANDBOXED_REVIEWS") != "1":
+    raise SystemExit("unsandboxed/engine: JUMI_ALLOW_UNSANDBOXED_REVIEWS must be 1")
+unsandboxed_text = (work / "unsandboxed.yaml").read_text()
+unsandboxed_docs = docs("unsandboxed")
+unsandboxed_router = next(d for d in unsandboxed_docs if has_kind_component(d, "Deployment", "router"))
+if "JUMI_ALLOW_UNSANDBOXED_REVIEWS" not in unsandboxed_router:
+    raise SystemExit("unsandboxed router missing JUMI_ALLOW_UNSANDBOXED_REVIEWS")
+if "JUMI_ALLOW_UNSANDBOXED_REVIEWS" in gitea:
+    raise SystemExit("default gitea render must not set JUMI_ALLOW_UNSANDBOXED_REVIEWS")
+# raised setupTimeoutMaxMs raises activeDeadlineSeconds and LEASE_MS for that role.
+setup = load_jobs("setup-max")
+seng = setup["engine"]
+swor = setup["worker"]
+if seng["spec"].get("activeDeadlineSeconds") != 5400:
+    raise SystemExit(f"setup-max: engine deadline must be 3600000/1000+1800=5400, got {seng['spec'].get('activeDeadlineSeconds')}")
+if swor["spec"].get("activeDeadlineSeconds") != 23400:
+    raise SystemExit(f"setup-max: worker deadline must be 21600000/1000+1800=23400, got {swor['spec'].get('activeDeadlineSeconds')}")
+for _role, _job in setup.items():
+    _env = {e["name"]: e.get("value") for e in _job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    if _env.get("SETUP_TIMEOUT_MAX_MS") not in ("3600000", "21600000"):
+        raise SystemExit(f"setup-max/{_role}: SETUP_TIMEOUT_MAX_MS missing")
+    if _job["spec"]["activeDeadlineSeconds"] * 1000 <= int(_env["LEASE_MS"]):
+        raise SystemExit(f"setup-max/{_role}: deadline must exceed largest effective lease")
 print("render-check ok")
 PY

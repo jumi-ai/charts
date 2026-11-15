@@ -71,11 +71,21 @@ spec:
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
             {{- include "jumi.automergeEnv" $root | nindent 12 }}
+            {{- include "jumi.gitEnv" $root | nindent 12 }}
+            {{- include "jumi.phoenixEnv" $root | nindent 12 }}
+            {{- if $root.Values.jobs.engine.allowUnsandboxedReviews }}
+            - name: JUMI_ALLOW_UNSANDBOXED_REVIEWS
+              value: "1"
+            {{- end }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
             {{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}
             - name: OPENCODE_TIMEOUT_MAX_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMaxMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.setupTimeoutMaxMs) }}
+            - name: SETUP_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.setupTimeoutMaxMs) | quote }}
             {{- end }}
             - name: LEASE_MS
               value: {{ printf "%.0f" (float64 $lease) | quote }}
@@ -301,6 +311,8 @@ spec:
             {{- include "jumi.databaseEnv" $root | nindent 12 }}
             {{- include "jumi.jobForgeEnv" (dict "root" $root "cfg" $cfg) | nindent 12 }}
             {{- include "jumi.automergeEnv" $root | nindent 12 }}
+            {{- include "jumi.gitEnv" $root | nindent 12 }}
+            {{- include "jumi.phoenixEnv" $root | nindent 12 }}
             - name: OPENCODE_TIMEOUT_MS
               value: {{ printf "%.0f" (float64 $cfg.timeoutMs) | quote }}
             {{- if not (kindIs "invalid" $cfg.timeoutMaxMs) }}
@@ -322,6 +334,14 @@ spec:
             {{- if not (kindIs "invalid" $cfg.conflictTimeoutMaxMs) }}
             - name: CONFLICT_TIMEOUT_MAX_MS
               value: {{ printf "%.0f" (float64 $cfg.conflictTimeoutMaxMs) | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $cfg.setupTimeoutMaxMs) }}
+            - name: SETUP_TIMEOUT_MAX_MS
+              value: {{ printf "%.0f" (float64 $cfg.setupTimeoutMaxMs) | quote }}
+            {{- end }}
+            {{- if $cfg.cache.enabled }}
+            - name: JUMI_CACHE_DIR
+              value: /cache
             {{- end }}
             - name: LEASE_MS
               value: {{ printf "%.0f" (float64 $lease) | quote }}
@@ -361,6 +381,10 @@ spec:
               mountPath: /tmp
             - name: secrets
               mountPath: /run/jumi-secrets
+            {{- if $cfg.cache.enabled }}
+            - name: cache
+              mountPath: /cache
+            {{- end }}
             {{- if $cfg.runnersFile }}
             - name: config
               mountPath: /config
@@ -452,6 +476,11 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 1Mi
+        {{- if $cfg.cache.enabled }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ $cfg.cache.existingClaim | quote }}
+        {{- end }}
         {{- if $cfg.runnersFile }}
         - name: config
           configMap:

@@ -56,6 +56,16 @@ github:
   allowedRepos: ""
   botUsername: jumi
 
+# Git committer identity for Jumi commits. Empty = Jumi's own defaults
+# (`jumi` / `jumi@localhost`). Set both to sign work with a real identity.
+git:
+  name: ""
+  email: ""
+
+# Phoenix tracing public host. Empty = no public-host check.
+phoenix:
+  publicHost: ""
+
 # Disabled unless you run your own endpoint.
 opencode:
   wellKnownUrl: disabled
@@ -152,6 +162,14 @@ jobs:
     # largest effective timeout this role can run, so raising this also
     # raises activeDeadlineSeconds and LEASE_MS.
     timeoutMaxMs: null
+    # Deployer ceiling for the repository setup command (SETUP_TIMEOUT_MAX_MS).
+    # Null = app default 10 minutes. Raising it also raises
+    # activeDeadlineSeconds and LEASE_MS for this role.
+    setupTimeoutMaxMs: null
+    # Escape hatch for rollout on kernels without Landlock ABI >= 6.
+    # Renders JUMI_ALLOW_UNSANDBOXED_REVIEWS=1 into the router and engine Jobs.
+    # Default false: reviews fail closed when the sandbox is unavailable.
+    allowUnsandboxedReviews: false
     # Per-role forge token as {name, key}. Empty = secret.existingSecret
     # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
     forgeTokenSecret:
@@ -194,6 +212,17 @@ jobs:
     followupTimeoutMaxMs: null
     conflictTimeoutMs: null
     conflictTimeoutMaxMs: null
+    # Deployer ceiling for the repository setup command (SETUP_TIMEOUT_MAX_MS).
+    # Null = app default 10 minutes. Raising it also raises
+    # activeDeadlineSeconds and LEASE_MS for this role.
+    setupTimeoutMaxMs: null
+    # Optional shared tool-cache. Off by default. When enabled, mount the
+    # deployer-supplied persistent claim at /cache with JUMI_CACHE_DIR=/cache
+    # so caches persist across Jobs. Use a ReadWriteMany claim when several
+    # worker Jobs run at once. Caches live under <JUMI_CACHE_DIR>/<owner>/<repo>/.
+    cache:
+      enabled: false
+      existingClaim: ""
     # Per-role forge token as {name, key}. Empty = secret.existingSecret
     # + secret.giteaTokenKey (or secret.githubPrivateKeyKey when forge=github).
     forgeTokenSecret:
