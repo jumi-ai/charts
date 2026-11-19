@@ -170,6 +170,14 @@ keys:
     kind: value
     via: jobs.worker.cache.enabled + jobs.worker.cache.existingClaim (/cache)
     components: [worker]
+  BOARD_MCP_TOKEN:
+    kind: value
+    via: router.board.mcpTokenSecret ({name, key})
+    components: [router]
+  BOARD_MCP_KICK_TOKEN:
+    kind: value
+    via: router.board.mcpKickTokenSecret ({name, key})
+    components: [router]
   JUMI_ROLE:
     kind: internal
     note: Set by the chart (router/control). Jobs get JUMI_JOB_ID instead.

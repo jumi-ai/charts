@@ -4,6 +4,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 chart="$root/charts/jumi"
+appVersion="$(awk '/^appVersion:/{gsub(/"/, "", $2); print $2; exit}' "$chart/Chart.yaml")"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -25,7 +26,7 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set "image.reviewer.tag=v${appVersion}@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Split storageClass: one role pinned, the other unset. The chart's own Jobs
 # must still pass the chart's own gate (per-role exact rules admit this;
 # the generic union rule must stay permissive on presence).
@@ -132,11 +133,12 @@ if helm template jumi "$chart" --namespace default \
 fi
 grep -F "extraEnv must not set BOARD_MCP_KICK_TOKEN" "$work/bad-board-mcp-extra.err" >/dev/null
 
-python3 - "$work" <<'PY'
+python3 - "$work" "$appVersion" <<'PY'
 import sys, json
 from pathlib import Path
 
 work = Path(sys.argv[1])
+app_version = sys.argv[2]
 banned = (
     "kirmanak.stream",
     "authentik",
@@ -168,9 +170,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1" not in gitea:
+if f"ghcr.io/jumi-ai/jumi-reviewer:v{app_version}" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v11.3.1" not in gitea:
+if f"ghcr.io/jumi-ai/jumi-worker:v{app_version}" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -465,7 +467,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = f"ghcr.io/jumi-ai/jumi-reviewer:v{app_version}@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 # Split storageClass regression: engine pinned, worker unset.

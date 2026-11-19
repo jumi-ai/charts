@@ -67,6 +67,14 @@ render github-full -f "$chart/ci/github-values.yaml" \
 render cache -f "$chart/ci/gitea-values.yaml" \
   --set jobs.worker.cache.enabled=true \
   --set jobs.worker.cache.existingClaim=jumi-cache
+# Board MCP tokens render only with the board listener on; the full renders
+# above leave them unset, so a dedicated fixture proves the value keys render.
+render board-mcp -f "$chart/ci/gitea-values.yaml" \
+  --set router.board.enabled=true \
+  --set router.board.mcpTokenSecret.name=board-mcp-secret \
+  --set router.board.mcpTokenSecret.key=token \
+  --set router.board.mcpKickTokenSecret.name=board-mcp-kick-secret \
+  --set router.board.mcpKickTokenSecret.key=kick-token
 
 python3 - "$work" "$root" <<'PY'
 import json, re, sys
@@ -275,7 +283,7 @@ def check_render(name):
         if not codex and "CODEX_AUTH_FILE" in env:
             raise SystemExit(f"{name}/{role} job: CODEX_AUTH_FILE without codex")
 
-for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks", "gitea-full", "github-full", "cache"):
+for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks", "gitea-full", "github-full", "cache", "board-mcp"):
     check_render(name)
 
 # ---- contract-keys.yaml classification ----
