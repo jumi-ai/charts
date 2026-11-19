@@ -106,7 +106,7 @@ jobs:
       - name: Create kind cluster
         run: |
           set -euo pipefail
-          kind create cluster --image kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5 --wait 120s
+          kind create cluster --image kindest/node:v1.30.0 --wait 120s
           kubectl cluster-info
           kubectl api-resources | grep -E "ValidatingAdmissionPolicy"
       - name: Install chart with bundled Postgres and Codex on
@@ -126,8 +126,6 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
-            --set jobs.engine.hostUsers=false \
-            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
@@ -157,14 +155,7 @@ jobs:
             fi
             ns="jumi-${base}"
             kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
-            if [ "$base" = hooks ]; then
-              helm install jumi ./charts/jumi -n "$ns" \
-                -f "$f" \
-                --set jobs.engine.hostUsers=false \
-                --set jobs.worker.hostUsers=false
-            else
-              helm install jumi ./charts/jumi -n "$ns" -f "$f"
-            fi
+            helm install jumi ./charts/jumi -n "$ns" -f "$f"
           done
           for f in charts/jumi/ci/*-values.yaml; do
             base="$(basename "$f" "-values.yaml")"
@@ -178,7 +169,7 @@ jobs:
             python3 scripts/policy-check.py --engine "/tmp/${base}-engine.json" --worker "/tmp/${base}-worker.json" --namespace "$ns" --admit-only
           done
           # The deny table runs against gitea-values (jumi-ci, above) and
-          # hooks-values, which is the one with init containers and hostUsers.
+          # hooks-values, which is the one with init containers.
           python3 scripts/policy-check.py --engine /tmp/hooks-engine.json --worker /tmp/hooks-worker.json --namespace jumi-hooks
       - name: Run one Job with disk-backed /tmp and secrets tmpfs
         run: |
@@ -256,8 +247,6 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
-            --set jobs.engine.hostUsers=false \
-            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
@@ -288,8 +277,6 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
-            --set jobs.engine.hostUsers=false \
-            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
