@@ -9,6 +9,61 @@ trap 'rm -rf "$work"' EXIT
 
 helm lint "$chart"
 
+python3 - "$chart" <<'PY'
+import json, sys
+from pathlib import Path
+import yaml
+
+chart = Path(sys.argv[1])
+values = yaml.safe_load((chart / "values.yaml").read_text())
+schema = json.loads((chart / "values.schema.json").read_text())
+
+# Objects whose children are user/K8s shapes, not chart keys.
+OPEN_MAPS = {
+    "podLabels", "podAnnotations",
+    "volumeClaimLabels", "volumeClaimAnnotations",
+    "annotations", "resources",
+    "podSecurityContext", "containerSecurityContext",
+    "nodeSelector", "affinity", "tolerations",
+}
+OPEN_LISTS = {"extraEnv", "extraEnvFrom", "initContainers", "imagePullSecrets"}
+
+
+def walk(node, subschema, path):
+    if isinstance(node, dict):
+        props = subschema.get("properties", {}) if isinstance(subschema, dict) else {}
+        for k, v in node.items():
+            cur = f"{path}.{k}" if path else str(k)
+            if k not in props:
+                print(f"values.yaml key has no schema entry: {cur}", file=sys.stderr)
+                sys.exit(1)
+            sub = props[k]
+            if k in OPEN_MAPS:
+                continue
+            if k in OPEN_LISTS:
+                continue
+            if k == "files":
+                # config.files keys are user filenames
+                continue
+            if isinstance(v, dict):
+                if isinstance(sub, dict) and "properties" in sub:
+                    walk(v, sub, cur)
+            elif isinstance(v, list):
+                items = sub.get("items", {}) if isinstance(sub, dict) else {}
+                if isinstance(items, dict) and "properties" in items:
+                    for i, elem in enumerate(v):
+                        if isinstance(elem, dict):
+                            for ek in elem:
+                                if ek not in items["properties"]:
+                                    print(f"values.yaml key has no schema entry: {cur}[{i}].{ek}", file=sys.stderr)
+                                    sys.exit(1)
+                # open items: nothing to check
+
+
+walk(values, schema, "")
+print("schema-coverage ok")
+PY
+
 render() {
   local name="$1"
   shift
@@ -123,6 +178,31 @@ if helm template jumi "$chart" --namespace default \
   exit 1
 fi
 grep -F "extraEnv must not set BOARD_MCP_KICK_TOKEN" "$work/bad-board-mcp-extra.err" >/dev/null
+# Unknown values keys fail the schema (typo guard).
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set routr.replicas=2 \
+  >"$work/bad-typo-top.yaml" 2>"$work/bad-typo-top.err"; then
+  echo "expected unknown top-level key routr to fail the render" >&2
+  exit 1
+fi
+grep -F "routr" "$work/bad-typo-top.err" >/dev/null
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.worker.timeoutMS=5 \
+  >"$work/bad-typo-worker.yaml" 2>"$work/bad-typo-worker.err"; then
+  echo "expected unknown jobs.worker key timeoutMS to fail the render" >&2
+  exit 1
+fi
+grep -F "timeoutMS" "$work/bad-typo-worker.err" >/dev/null
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.worker.cach.enabled=true \
+  >"$work/bad-typo-cache.yaml" 2>"$work/bad-typo-cache.err"; then
+  echo "expected unknown jobs.worker.cache key cach to fail the render" >&2
+  exit 1
+fi
+grep -F "cach" "$work/bad-typo-cache.err" >/dev/null
 
 python3 - "$work" <<'PY'
 import sys, json

@@ -27,6 +27,8 @@ jobs:
         run: bash scripts/install-helm.sh
       - name: Lint and render
         run: bash scripts/render-check.sh
+      - name: Admission policy coverage guard
+        run: python3 scripts/policy-check.py --guard
       - name: Check workflows with actionlint
         run: |
           set -euo pipefail
@@ -122,6 +124,8 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
+            --set jobs.engine.hostUsers=false \
+            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
@@ -135,142 +139,45 @@ jobs:
       - name: Prove the admission policy
         run: |
           set -euo pipefail
+          # The deny table lives in scripts/policy-check.py: each case names the
+          # exact policy message it must be denied with. This step only creates
+          # the kind objects (namespaces + installs) and calls the script.
           kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.engine\\.json}" > /tmp/engine.json
           kubectl -n jumi-ci get configmap jumi-jobs -o "jsonpath={.data.worker\\.json}" > /tmp/worker.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          for name in ("engine", "worker"):
-              p = Path(f"/tmp/{name}.json")
-              job = json.loads(p.read_text())
-              job["metadata"]["name"] = f"e2e-{name}-ok"
-              p.write_text(json.dumps(job))
-              # variants, each violating exactly one rule
-              base = json.loads(p.read_text())
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-hostpath"
-              v["spec"]["template"]["spec"]["volumes"].append({"name": "bad", "hostPath": {"path": "/"}})
-              v["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad", "mountPath": "/bad"})
-              Path(f"/tmp/{name}-hostpath.json").write_text(json.dumps(v))
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-envfrom"
-              v["spec"]["template"]["spec"]["containers"][0].setdefault("envFrom", []).append({"secretRef": {"name": "not-allowlisted"}})
-              Path(f"/tmp/{name}-envfrom.json").write_text(json.dumps(v))
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-image"
-              v["spec"]["template"]["spec"]["containers"][0]["image"] = "ghcr.io/evil/other:latest"
-              Path(f"/tmp/{name}-image.json").write_text(json.dumps(v))
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-automount"
-              v["spec"]["template"]["spec"]["automountServiceAccountToken"] = True
-              Path(f"/tmp/{name}-automount.json").write_text(json.dumps(v))
-              # init container with envFrom to a non-allowlisted Secret
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-init-envfrom"
-              main_sc = dict(v["spec"]["template"]["spec"]["containers"][0].get("securityContext", {}))
-              main_img = v["spec"]["template"]["spec"]["containers"][0]["image"]
-              v["spec"]["template"]["spec"].setdefault("initContainers", []).append({
-                  "name": "bad-init",
-                  "image": main_img,
-                  "securityContext": main_sc,
-                  "envFrom": [{"secretRef": {"name": "not-allowlisted"}}],
-              })
-              Path(f"/tmp/{name}-init-envfrom.json").write_text(json.dumps(v))
-              # ephemeral volume with dataSourceRef to a PVC
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-datasourceref"
-              v["spec"]["template"]["spec"]["volumes"].append({
-                  "name": "bad-ds",
-                  "ephemeral": {"volumeClaimTemplate": {"spec": {
-                      "accessModes": ["ReadWriteOnce"],
-                      "resources": {"requests": {"storage": "1Gi"}},
-                      "dataSourceRef": {"kind": "PersistentVolumeClaim", "name": "some-pvc"},
-                  }}},
-              })
-              v["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad-ds", "mountPath": "/bad-ds"})
-              Path(f"/tmp/{name}-datasourceref.json").write_text(json.dumps(v))
-              # container with env.valueFrom.configMapKeyRef to a non-allowlisted ConfigMap
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-configkeyref"
-              v["spec"]["template"]["spec"]["containers"][0].setdefault("env", []).append({
-                  "name": "BAD_CM",
-                  "valueFrom": {"configMapKeyRef": {"name": "not-allowlisted", "key": "k"}},
-              })
-              Path(f"/tmp/{name}-configkeyref.json").write_text(json.dumps(v))
-              # extra pod-template label (e.g. a NetworkPolicy-selected label)
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-podlabel"
-              v["spec"]["template"]["metadata"].setdefault("labels", {})["cnpg.io/cluster"] = "evil"
-              Path(f"/tmp/{name}-podlabel.json").write_text(json.dumps(v))
-              # ephemeral claim with no storageClassName while one is configured
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-nosc"
-              for vol in v["spec"]["template"]["spec"]["volumes"]:
-                  claim = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("spec")
-                  if claim is not None and "storageClassName" in claim:
-                      del claim["storageClassName"]
-              Path(f"/tmp/{name}-nosc.json").write_text(json.dumps(v))
-              # ephemeral claim missing a configured volumeClaimLabels entry
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-claimlabel"
-              for vol in v["spec"]["template"]["spec"]["volumes"]:
-                  meta = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("metadata")
-                  if meta is not None and "labels" in meta:
-                      meta["labels"].pop("example.com/backup", None)
-              Path(f"/tmp/{name}-claimlabel.json").write_text(json.dumps(v))
-              # ephemeral claim with extra accessModes entry
-              v = json.loads(json.dumps(base))
-              v["metadata"]["name"] = f"e2e-{name}-accessmodes"
-              for vol in v["spec"]["template"]["spec"]["volumes"]:
-                  claim = ((vol.get("ephemeral") or {}).get("volumeClaimTemplate") or {}).get("spec")
-                  if claim is not None and "accessModes" in claim:
-                      claim["accessModes"] = ["ReadWriteOnce", "ReadWriteMany"]
-                      break
-              Path(f"/tmp/{name}-accessmodes.json").write_text(json.dumps(v))
-          # cache-claim variants: worker with another claim, engine with the cache claim
-          wbase = json.loads(Path("/tmp/worker.json").read_text())
-          w = json.loads(json.dumps(wbase))
-          w["metadata"]["name"] = "e2e-worker-pvc-other"
-          w["spec"]["template"]["spec"]["volumes"].append({"name": "bad-cache", "persistentVolumeClaim": {"claimName": "other-claim"}})
-          w["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "bad-cache", "mountPath": "/bad-cache"})
-          Path("/tmp/worker-pvc-other.json").write_text(json.dumps(w))
-          ebase = json.loads(Path("/tmp/engine.json").read_text())
-          e = json.loads(json.dumps(ebase))
-          e["metadata"]["name"] = "e2e-engine-cache"
-          e["spec"]["template"]["spec"]["volumes"].append({"name": "cache", "persistentVolumeClaim": {"claimName": "jumi-cache"}})
-          e["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append({"name": "cache", "mountPath": "/cache"})
-          Path("/tmp/engine-cache.json").write_text(json.dumps(e))
-          PY
-          as_control="system:serviceaccount:jumi-ci:jumi-control"
-          kubectl -n jumi-ci create -f /tmp/engine.json --as="$as_control" --dry-run=server -o name
-          kubectl -n jumi-ci create -f /tmp/worker.json --as="$as_control" --dry-run=server -o name
-          for variant in hostpath envfrom image automount init-envfrom datasourceref configkeyref podlabel nosc claimlabel accessmodes; do
-            for role in engine worker; do
-              if kubectl -n jumi-ci create -f "/tmp/${role}-${variant}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
-                echo "policy admitted ${role}-${variant} for control SA" >&2
-                exit 1
-              fi
-              grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|serviceAccount|automount|hostPath|secret|image|storage|claim|accessModes|label" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
-            done
-          done
-          for f in worker-pvc-other engine-cache; do
-            if kubectl -n jumi-ci create -f "/tmp/${f}.json" --as="$as_control" --dry-run=server -o name 2>/tmp/deny.err; then
-              echo "policy admitted ${f} for control SA" >&2
-              exit 1
+          python3 scripts/policy-check.py --engine /tmp/engine.json --worker /tmp/worker.json --namespace jumi-ci
+          # Every ci values file gets its own namespace + install so the chart's
+          # own engine and worker Jobs are proven admitted under those values.
+          # jumi-ci above already covers gitea-values with the featureful sets.
+          for f in charts/jumi/ci/*-values.yaml; do
+            base="$(basename "$f" "-values.yaml")"
+            if [ "$base" = gitea ]; then
+              continue
             fi
-            grep -i -E "denied|ValidatingAdmissionPolicy|allowlist|persistentVolumeClaim|claim" /tmp/deny.err >/dev/null || (cat /tmp/deny.err >&2; exit 1)
+            ns="jumi-${base}"
+            kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+            if [ "$base" = hooks ]; then
+              helm install jumi ./charts/jumi -n "$ns" \
+                -f "$f" \
+                --set jobs.engine.hostUsers=false \
+                --set jobs.worker.hostUsers=false
+            else
+              helm install jumi ./charts/jumi -n "$ns" -f "$f"
+            fi
           done
-          # same commands as a different user are not matched by the policy:
-          # no denial message from the policy itself
-          if kubectl -n jumi-ci create -f /tmp/engine.json --as="system:serviceaccount:jumi-ci:jumi-job" --dry-run=server -o name 2>/tmp/other.err; then
-            echo "unexpected admit for job SA (RBAC should deny)" >&2
-            exit 1
-          fi
-          if grep -i "ValidatingAdmissionPolicy" /tmp/other.err; then
-            echo "policy matched a different user" >&2
-            cat /tmp/other.err >&2
-            exit 1
-          fi
+          for f in charts/jumi/ci/*-values.yaml; do
+            base="$(basename "$f" "-values.yaml")"
+            if [ "$base" = gitea ]; then
+              ns="jumi-ci"
+            else
+              ns="jumi-${base}"
+            fi
+            kubectl -n "$ns" get configmap jumi-jobs -o "jsonpath={.data.engine\\.json}" > "/tmp/${base}-engine.json"
+            kubectl -n "$ns" get configmap jumi-jobs -o "jsonpath={.data.worker\\.json}" > "/tmp/${base}-worker.json"
+            python3 scripts/policy-check.py --engine "/tmp/${base}-engine.json" --worker "/tmp/${base}-worker.json" --namespace "$ns" --admit-only
+          done
+          # The deny table runs against gitea-values (jumi-ci, above) and
+          # hooks-values, which is the one with init containers and hostUsers.
+          python3 scripts/policy-check.py --engine /tmp/hooks-engine.json --worker /tmp/hooks-worker.json --namespace jumi-hooks
       - name: Run one Job with disk-backed /tmp and secrets tmpfs
         run: |
           set -euo pipefail
@@ -347,6 +254,8 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
+            --set jobs.engine.hostUsers=false \
+            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status deployment/jumi-router --timeout=300s
@@ -376,6 +285,8 @@ jobs:
             --set jobs.worker.storageClass=standard \
             --set jobs.worker.cache.enabled=true \
             --set jobs.worker.cache.existingClaim=jumi-cache \
+            --set jobs.engine.hostUsers=false \
+            --set jobs.worker.hostUsers=false \
             --set-json jobs.engine.volumeClaimLabels='{"example.com/backup":"false"}' \
             --set-json jobs.worker.volumeClaimLabels='{"example.com/backup":"false"}'
           kubectl -n jumi-ci rollout status statefulset/jumi-control --timeout=300s
