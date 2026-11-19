@@ -125,6 +125,17 @@ router:
   board:
     enabled: false
     port: 3001
+    # Existing Secret + key for BOARD_MCP_TOKEN (board read token).
+    # Router-only: renders into the router Deployment only. Both empty = unset.
+    mcpTokenSecret:
+      name: ""
+      key: ""
+    # Existing Secret + key for BOARD_MCP_KICK_TOKEN (board kick token).
+    # Write credential (runs board kicks). Router-only: it must never
+    # render into control, Jobs or top-level extraEnv. Both empty = unset.
+    mcpKickTokenSecret:
+      name: ""
+      key: ""
     ingress:
       enabled: false
       className: ""

@@ -53,7 +53,28 @@
         "podAnnotations": { "type": "object" },
         "hostUsers": { "type": ["boolean", "null"] },
         "extraEnv": { "type": "array" },
-        "extraEnvFrom": { "type": "array" }
+        "extraEnvFrom": { "type": "array" },
+        "board": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "type": "integer" },
+            "mcpTokenSecret": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            },
+            "mcpKickTokenSecret": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            }
+          }
+        }
       }
     },
     "control": {
