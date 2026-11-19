@@ -8,7 +8,7 @@ set -euo pipefail
 
 for i in 1 2 3 4 5; do
   if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-    -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
+    -o /tmp/helm.tgz https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz; then
     break
   fi
   echo "helm download attempt $i failed, retrying..." >&2

@@ -2,3 +2,5 @@
 __pycache__/
 .DS_Store
 .device-flow.json
+__pycache__/
+*.pyc
