@@ -4,6 +4,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 chart="$root/charts/jumi"
+appVersion="$(awk '/^appVersion:/{gsub(/"/, "", $2); print $2; exit}' "$chart/Chart.yaml")"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -80,7 +81,7 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set "image.reviewer.tag=v${appVersion}@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Split storageClass: one role pinned, the other unset. The chart's own Jobs
 # must still pass the chart's own gate (per-role exact rules admit this;
 # the generic union rule must stay permissive on presence).
@@ -108,6 +109,14 @@ render unsandboxed -f "$chart/ci/gitea-values.yaml" \
 render setup-max -f "$chart/ci/gitea-values.yaml" \
   --set jobs.engine.setupTimeoutMaxMs=3600000 \
   --set jobs.worker.setupTimeoutMaxMs=21600000
+# Optionals that only render when set: allowed repos, install id, model.
+render full-gitea -f "$chart/ci/gitea-values.yaml" \
+  --set gitea.allowedRepos=example-repo \
+  --set opencode.model=jumi-model
+render full-github -f "$chart/ci/github-values.yaml" \
+  --set github.allowedRepos=example-repo \
+  --set github.installationId=123 \
+  --set opencode.model=jumi-model
 # Board MCP tokens: router-only, require the board listener.
 render board-mcp -f "$chart/ci/gitea-values.yaml" \
   --set router.board.enabled=true \
@@ -204,11 +213,12 @@ if helm template jumi "$chart" --namespace default \
 fi
 grep -F "cach" "$work/bad-typo-cache.err" >/dev/null
 
-python3 - "$work" <<'PY'
+python3 - "$work" "$appVersion" <<'PY'
 import sys, json
 from pathlib import Path
 
 work = Path(sys.argv[1])
+app_version = sys.argv[2]
 banned = (
     "kirmanak.stream",
     "authentik",
@@ -240,9 +250,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1" not in gitea:
+if f"ghcr.io/jumi-ai/jumi-reviewer:v{app_version}" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v11.3.1" not in gitea:
+if f"ghcr.io/jumi-ai/jumi-worker:v{app_version}" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -537,7 +547,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = f"ghcr.io/jumi-ai/jumi-reviewer:v{app_version}@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 # Split storageClass regression: engine pinned, worker unset.
@@ -690,6 +700,31 @@ for _role, _job in setup.items():
         raise SystemExit(f"setup-max/{_role}: SETUP_TIMEOUT_MAX_MS missing")
     if _job["spec"]["activeDeadlineSeconds"] * 1000 <= int(_env["LEASE_MS"]):
         raise SystemExit(f"setup-max/{_role}: deadline must exceed largest effective lease")
+# Optional value keys only render when set: allowed repos, install id, model.
+full_gitea = (work / "full-gitea.yaml").read_text()
+if "GITEA_ALLOWED_REPOS" not in full_gitea or "example-repo" not in full_gitea:
+    raise SystemExit("full-gitea must render GITEA_ALLOWED_REPOS")
+if "OPENCODE_MODEL" not in full_gitea or "jumi-model" not in full_gitea:
+    raise SystemExit("full-gitea must render OPENCODE_MODEL")
+full_gitea_jobs = load_jobs("full-gitea")
+for _role in ("engine", "worker"):
+    _env = {e["name"]: e.get("value") for e in full_gitea_jobs[_role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    if "GITEA_ALLOWED_REPOS" not in _env:
+        raise SystemExit(f"full-gitea/{_role}: GITEA_ALLOWED_REPOS missing in Job")
+    if _env.get("OPENCODE_MODEL") != "jumi-model":
+        raise SystemExit(f"full-gitea/{_role}: OPENCODE_MODEL missing in Job")
+if "GITEA_ALLOWED_REPOS" in gitea:
+    raise SystemExit("default gitea render must not set GITEA_ALLOWED_REPOS")
+full_github = (work / "full-github.yaml").read_text()
+if "GITHUB_ALLOWED_REPOS" not in full_github or "GITHUB_APP_INSTALLATION_ID" not in full_github:
+    raise SystemExit("full-github must render GITHUB_ALLOWED_REPOS and GITHUB_APP_INSTALLATION_ID")
+if "OPENCODE_MODEL" not in full_github:
+    raise SystemExit("full-github must render OPENCODE_MODEL")
+# Control value keys render by default on the StatefulSet.
+if "CONTROL_DISPATCH_ENGINE" not in gitea or "CONTROL_ENGINE_MAX_JOBS" not in gitea:
+    raise SystemExit("gitea control must render CONTROL_DISPATCH_ENGINE and CONTROL_ENGINE_MAX_JOBS")
+if "CONTROL_DISPATCH_POLL_MS" not in gitea or "CONTROL_JOB_STARTUP_TIMEOUT_MS" not in gitea:
+    raise SystemExit("gitea control must render CONTROL_DISPATCH_POLL_MS and CONTROL_JOB_STARTUP_TIMEOUT_MS")
 # Board MCP tokens render only into the router Deployment.
 _mcp_text = (work / "board-mcp.yaml").read_text()
 _mcp_docs = docs("board-mcp")

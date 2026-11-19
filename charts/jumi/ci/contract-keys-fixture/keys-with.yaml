@@ -1,0 +1,20 @@
+# Fixture with the new key classified: gate must pass.
+keys:
+  GITEA_URL:
+    kind: value
+    via: gitea.url
+    components: [router, engine, worker]
+  FAKE_NEW_KEY:
+    kind: extraEnv
+    components: [router]
+    note: Fixture key.
+  FORGE:
+    kind: value
+    via: forge
+    components: [router, engine, worker]
+  JUMI_ROLE:
+    kind: internal
+    note: Set by the chart.
+  HOST:
+    kind: internal
+    note: App default.

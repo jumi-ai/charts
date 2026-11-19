@@ -1,0 +1,16 @@
+# Fixture without the new key: gate must fail.
+keys:
+  GITEA_URL:
+    kind: value
+    via: gitea.url
+    components: [router, engine, worker]
+  FORGE:
+    kind: value
+    via: forge
+    components: [router, engine, worker]
+  JUMI_ROLE:
+    kind: internal
+    note: Set by the chart.
+  HOST:
+    kind: internal
+    note: App default.
