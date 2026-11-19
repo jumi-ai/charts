@@ -180,7 +180,11 @@ def _m_accessmodes(job):
 
 
 def _m_job_labels(job):
-    job.setdefault("metadata", {}).setdefault("labels", {})["app.kubernetes.io/component"] = "other"
+    # Break the instance label, not the component: the worker cache PVC
+    # volumes exception requires job component == worker, so flipping
+    # component to "other" would trip the volumes rule first and the deny
+    # table would see the wrong exact message.
+    job.setdefault("metadata", {}).setdefault("labels", {})["app.kubernetes.io/instance"] = "other"
 
 
 def _m_pod_labels(job):
