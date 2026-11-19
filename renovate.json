@@ -10,8 +10,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Helm CLI version in the CI download URL. Every job downloads the same version, so all matches move in one pull.",
-      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "description": "Helm CLI version in the CI install script. One download location, so the bump moves every job in one pull.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^scripts\\/install-helm\\.sh$/"],
       "matchStrings": [
         "https://get\\.helm\\.sh/helm-(?<currentValue>v\\d+\\.\\d+\\.\\d+)-linux-amd64\\.tar\\.gz"
       ],
@@ -30,16 +30,62 @@
       "packageNameTemplate": "jumi-ai/jumi",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "actionlint version in the lint job.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["ACTIONLINT_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "actionlint",
+      "packageNameTemplate": "rhysd/actionlint",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "ShellCheck binary version used by the lint job.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["SHELLCHECK_VERSION:\\s*v(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "shellcheck",
+      "packageNameTemplate": "koalaman/shellcheck",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "zizmor version in the lint job.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["ZIZMOR_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "zizmor",
+      "packageNameTemplate": "zizmor",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "kind CLI version in the e2e download URLs. Both mirrors move in one pull.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "https://kind\\.sigs\\.k8s\\.io/dl/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/kind-linux-amd64",
+        "https://github\\.com/kubernetes-sigs/kind/releases/download/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/kind-linux-amd64"
+      ],
+      "depNameTemplate": "kind",
+      "packageNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "kindest/node image tag in the e2e cluster step. Pinned to the chart kubeVersion floor; only patch updates.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["kindest/node:v(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "kindest/node",
+      "packageNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
     {
-      "description": "Helm CLI stays on the 3.x line. Pull CI only lints, so package, registry login, and push would first meet a new major on a signed tag. A human moves the major after running the publish commands.",
-      "matchManagers": ["custom.regex"],
-      "matchDatasources": ["github-releases"],
-      "matchDepNames": ["helm"],
-      "matchPackageNames": ["helm/helm"],
-      "allowedVersions": "/^v3\\./"
+      "description": "kindest/node stays on the chart's kubeVersion floor (1.30). Only patch updates, so the e2e keeps testing the oldest supported Kubernetes.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["kindest/node"],
+      "allowedVersions": "/^1\\.30\\./"
     },
     {
       "description": "Actions stay pinned to a commit with a version comment.",
