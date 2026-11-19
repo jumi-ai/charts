@@ -85,7 +85,7 @@ jobs:
       - name: Install kind
         run: |
           set -euo pipefail
-          urls="https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.24.0/kind-linux-amd64"
+          urls="https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
           ok=0
           for i in 1 2 3 4 5; do
             for url in $urls; do
