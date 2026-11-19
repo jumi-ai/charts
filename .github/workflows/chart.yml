@@ -15,25 +15,36 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      SHELLCHECK_VERSION: v0.11.0
+      ZIZMOR_VERSION: 1.32.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Helm
-        run: |
-          set -euo pipefail
-          for i in 1 2 3 4 5; do
-            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
-              break
-            fi
-            echo "helm download attempt $i failed, retrying..." >&2
-            sleep 10
-            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
-          done
-          tar -xzf /tmp/helm.tgz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
-          helm version
+        run: bash scripts/install-helm.sh
       - name: Lint and render
         run: bash scripts/render-check.sh
+      - name: Check workflows with actionlint
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 10 --retry-all-errors \
+            -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint
+      - name: Check workflows with zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false
+          min-severity: medium
+          version: ${{ env.ZIZMOR_VERSION }}
+      - name: Check scripts with shellcheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        with:
+          scandir: scripts
+          version: ${{ env.SHELLCHECK_VERSION }}
       - name: Public pull check regression
         run: |
           set -euo pipefail
@@ -50,21 +61,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Helm
-        run: |
-          set -euo pipefail
-          for i in 1 2 3 4 5; do
-            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
-              break
-            fi
-            echo "helm download attempt $i failed, retrying..." >&2
-            sleep 10
-            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
-          done
-          tar -xzf /tmp/helm.tgz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
-          helm version
+        run: bash scripts/install-helm.sh
       - name: Contract drift check
         run: bash scripts/contract-check.sh
 
@@ -76,21 +76,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Helm
-        run: |
-          set -euo pipefail
-          for i in 1 2 3 4 5; do
-            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
-              break
-            fi
-            echo "helm download attempt $i failed, retrying..." >&2
-            sleep 10
-            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
-          done
-          tar -xzf /tmp/helm.tgz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
-          helm version
+        run: bash scripts/install-helm.sh
       - name: Install kind
         run: |
           set -euo pipefail
@@ -296,7 +285,7 @@ jobs:
           kubectl -n jumi-ci create -f /tmp/e2e-engine-run.json --as="$as_control"
           # wait for the pod to be created and the container to start
           # (Ready, Running, or terminated after start: the dummy row may exit fast)
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             pod="$(kubectl -n jumi-ci get pod -l job-name=e2e-engine-run -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
             if [ -n "${pod:-}" ]; then
               state="$(kubectl -n jumi-ci get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state}' 2>/dev/null || true)"
@@ -333,7 +322,7 @@ jobs:
           kubectl -n jumi-ci get pvc | grep -q "e2e-engine-run"
           # live checks while the container is still running
           if kubectl -n jumi-ci get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' | grep -q .; then
-            kubectl -n jumi-ci exec "$pod" -- sh -c 'test "$JUMI_SECRETS_DIR" = /run/jumi-secrets'
+            kubectl -n jumi-ci exec "$pod" -- sh -c "test \"\$JUMI_SECRETS_DIR\" = /run/jumi-secrets"
             kubectl -n jumi-ci exec "$pod" -- sh -c 'mount | grep " /run/jumi-secrets " | grep -q tmpfs'
             kubectl -n jumi-ci exec "$pod" -- sh -c 'df -T /tmp | tail -1 | grep -qv " tmpfs "'
             # the entrypoint's secrets file, when written, must live under /run/jumi-secrets, never /tmp
@@ -401,20 +390,60 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      registry:
+        image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 # 2.8.3
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish dry-run
+        with:
+          persist-credentials: false
+          # Shallow, tag-free checkout: the publish script's
+          # "only when jumi-v<version> doesn't exist" gate always passes
+          # here, so the push path runs on every PR. The publish job uses
+          # fetch-depth 0 so the same gate is real on main/tag pushes.
+          fetch-depth: 1
+          fetch-tags: false
+      - name: Install Helm
+        run: bash scripts/install-helm.sh
+      - name: Wait for local registry
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then
+              echo "local registry is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "local registry did not start" >&2
+          exit 1
+      - name: Publish dry-run to local registry
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HELM_REGISTRY_USER: ${{ github.actor }}
+        run: bash scripts/publish.sh --dry-run --registry oci://localhost:5000/charts
+      - name: Pull back and verify chart versions
         run: |
           set -euo pipefail
           version="$(awk '/^version:/{print $2; exit}' charts/jumi/Chart.yaml)"
-          count="$(gh api "repos/${{ github.repository }}/git/matching-refs/tags/jumi-v${version}" --jq 'length')"
-          if [ "${count:-0}" = 0 ]; then
-            echo "would publish ${version}"
-          else
-            echo "would skip ${version} (tag jumi-v${version} exists)"
+          app_version="$(awk '/^appVersion:/{gsub(/"/, "", $2); print $2; exit}' charts/jumi/Chart.yaml)"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          helm pull oci://localhost:5000/charts/jumi --version "$version" --plain-http \
+            --destination "$work" --untar --untardir "$work/unpacked"
+          pulled_version="$(awk '/^version:/{print $2; exit}' "$work/unpacked/jumi/Chart.yaml")"
+          pulled_app="$(awk '/^appVersion:/{gsub(/"/, "", $2); print $2; exit}' "$work/unpacked/jumi/Chart.yaml")"
+          if [ "$pulled_version" != "$version" ]; then
+            echo "pulled version ${pulled_version} != Chart.yaml version ${version}" >&2
+            exit 1
           fi
+          if [ "$pulled_app" != "$app_version" ]; then
+            echo "pulled appVersion ${pulled_app} != Chart.yaml appVersion ${app_version}" >&2
+            exit 1
+          fi
+          echo "pulled back jumi ${pulled_version} (appVersion ${pulled_app}) from the local registry"
 
   publish:
     needs: [lint, contract]
@@ -427,64 +456,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+        # zizmor: ignore[artipacked] -- the publish job pushes the release tag.
       - name: Install Helm
-        run: |
-          set -euo pipefail
-          for i in 1 2 3 4 5; do
-            if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-              -o /tmp/helm.tgz https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz; then
-              break
-            fi
-            echo "helm download attempt $i failed, retrying..." >&2
-            sleep 10
-            if [ "$i" = 5 ]; then echo "helm download failed after 5 attempts" >&2; exit 1; fi
-          done
-          tar -xzf /tmp/helm.tgz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+        run: bash scripts/install-helm.sh
       - name: Publish OCI chart and GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          version="$(awk '/^version:/{print $2; exit}' charts/jumi/Chart.yaml)"
-          if [[ "$GITHUB_REF" == refs/tags/jumi-v* ]]; then
-            tag="${GITHUB_REF_NAME#jumi-v}"
-            if [ "$tag" != "$version" ]; then
-              echo "tag jumi-v${tag} does not match Chart.yaml version ${version}" >&2
-              exit 1
-            fi
-            echo "tag push for ${version} (fallback path; skips push below when already published)"
-          else
-            # Push to main publishes only when this version has no tag yet.
-            if git rev-parse -q --verify "refs/tags/jumi-v${version}" >/dev/null; then
-              echo "tag jumi-v${version} already exists, nothing to publish"
-              exit 0
-            fi
-            echo "main push publishes ${version}"
-          fi
-          mkdir -p /tmp/oci-check
-          if helm pull "oci://ghcr.io/jumi-ai/charts/jumi" --version "$version" --destination /tmp/oci-check >/dev/null 2>&1; then
-            echo "OCI tag ${version} already exists, skipping push (not overwriting)"
-            skip_push=1
-          else
-            skip_push=0
-          fi
-          helm package charts/jumi
-          if [ "$skip_push" = 0 ]; then
-            printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-            helm push "jumi-${version}.tgz" oci://ghcr.io/jumi-ai/charts
-          fi
-          if ! git rev-parse -q --verify "refs/tags/jumi-v${version}" >/dev/null; then
-            git tag "jumi-v${version}"
-            git push origin "jumi-v${version}"
-          fi
-          if gh release view "jumi-v${version}" >/dev/null 2>&1; then
-            echo "release jumi-v${version} already exists"
-          else
-            gh release create "jumi-v${version}" "jumi-${version}.tgz" \
-              --title "jumi ${version}" \
-              --notes "$(printf 'Helm chart jumi %s.\n\n```bash\nhelm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version %s\n```\n' "$version" "$version")"
-          fi
+          HELM_REGISTRY_USER: ${{ github.actor }}
+        run: bash scripts/publish.sh
       - name: Verify anonymous pull
         run: |
           set -euo pipefail
