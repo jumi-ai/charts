@@ -104,7 +104,7 @@ jobs:
       - name: Create kind cluster
         run: |
           set -euo pipefail
-          kind create cluster --image kindest/node:v1.30.0 --wait 120s
+          kind create cluster --image kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5 --wait 120s
           kubectl cluster-info
           kubectl api-resources | grep -E "ValidatingAdmissionPolicy"
       - name: Install chart with bundled Postgres and Codex on
