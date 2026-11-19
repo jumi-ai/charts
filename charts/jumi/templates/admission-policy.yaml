@@ -58,6 +58,18 @@ spec:
     - message: initContainers must use the restricted security context
       expression: >-
         (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, has(c.securityContext) && c.securityContext.runAsNonRoot == true && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop && (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) && has(c.securityContext.seccompProfile) && c.securityContext.seccompProfile.type == 'RuntimeDefault'))
+    - message: job must carry the chart role labels
+      expression: >-
+        has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker'] && 'app.kubernetes.io/instance' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/instance'] == {{ $root.Release.Name | quote }}
+    - message: job pods must carry the chart role labels
+      expression: >-
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && 'app.kubernetes.io/component' in object.spec.template.metadata.labels && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
+    - message: engine job pods must only carry allowlisted labels
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $engAllowed }}))
+    - message: worker job pods must only carry allowlisted labels
+      expression: >-
+        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $workAllowed }}))
     - message: volumes must be emptyDir, ephemeral, or an allowlisted Secret or ConfigMap
       expression: >-
         object.spec.template.spec.volumes.all(v, has(v.emptyDir) || (has(v.ephemeral) && has(v.ephemeral.volumeClaimTemplate) && has(v.ephemeral.volumeClaimTemplate.spec) && has(v.ephemeral.volumeClaimTemplate.spec.accessModes) && v.ephemeral.volumeClaimTemplate.spec.accessModes == ['ReadWriteOnce'] && (!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) || v.ephemeral.volumeClaimTemplate.spec.storageClassName in {{ $scs }}) && (!has(v.ephemeral.volumeClaimTemplate.spec.volumeName) || v.ephemeral.volumeClaimTemplate.spec.volumeName == '') && !has(v.ephemeral.volumeClaimTemplate.spec.dataSource) && !has(v.ephemeral.volumeClaimTemplate.spec.dataSourceRef) && !has(v.ephemeral.volumeClaimTemplate.spec.selector)) || (has(v.secret) && v.secret.secretName in {{ $secrets }}) || (has(v.configMap) && v.configMap.name in {{ $cms }}){{ if $cacheEnabled }} || (has(v.persistentVolumeClaim) && has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] == 'worker' && v.persistentVolumeClaim.claimName == {{ $cacheClaim | quote }}){{ end }})
@@ -85,18 +97,6 @@ spec:
     - message: initContainer envFrom configMapRef must reference an allowlisted ConfigMap
       expression: >-
         (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c, !has(c.envFrom) || c.envFrom.all(ef, !has(ef.configMapRef) || ef.configMapRef.name in {{ $cms }})))
-    - message: job must carry the chart role labels
-      expression: >-
-        has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker'] && 'app.kubernetes.io/instance' in object.metadata.labels && object.metadata.labels['app.kubernetes.io/instance'] == {{ $root.Release.Name | quote }}
-    - message: job pods must carry the chart role labels
-      expression: >-
-        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) && 'app.kubernetes.io/component' in object.spec.template.metadata.labels && object.spec.template.metadata.labels['app.kubernetes.io/component'] in ['engine', 'worker']
-    - message: engine job pods must only carry allowlisted labels
-      expression: >-
-        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $engAllowed }}))
-    - message: worker job pods must only carry allowlisted labels
-      expression: >-
-        !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'worker' || (!has(object.spec.template.metadata) || !has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k, k in {{ $workAllowed }}))
     - message: engine claims must use the engine storage class
       expression: >-
         !has(object.metadata.labels) || !('app.kubernetes.io/component' in object.metadata.labels) || object.metadata.labels['app.kubernetes.io/component'] != 'engine' || object.spec.template.spec.volumes.all(v, !has(v.ephemeral) || !has(v.ephemeral.volumeClaimTemplate) || !has(v.ephemeral.volumeClaimTemplate.spec) || {{ if $engSC }}(has(v.ephemeral.volumeClaimTemplate.spec.storageClassName) && v.ephemeral.volumeClaimTemplate.spec.storageClassName == {{ $engSC | quote }}){{ else }}!has(v.ephemeral.volumeClaimTemplate.spec.storageClassName){{ end }})
