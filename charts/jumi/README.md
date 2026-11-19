@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.5.0` is tested against image tag `v11.1.15`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.6.0` is tested against image tag `v11.3.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.5.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.6.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -124,6 +124,15 @@ helm install jumi ./charts/jumi ... \
   --set router.board.ingress.className=nginx
 ```
 
+The board also serves an MCP endpoint for operators and agents. Reach it in-cluster at `http://<release>-board:<router.board.port>/mcp` (default port 3001); that is the way to reach it, not the ingress. The board ingress stays behind forward auth (`jumi.ai/auth-proxy-required`), so bearer calls to `/mcp` through that ingress don't work. Exposing `/mcp` through the ingress is out of scope.
+
+Two optional router-only values set its bearer tokens, each an existing Secret plus key (both unset by default, both render only into the router):
+
+- `router.board.mcpTokenSecret` (`{name, key}`) sets `BOARD_MCP_TOKEN` (read token).
+- `router.board.mcpKickTokenSecret` (`{name, key}`) sets `BOARD_MCP_KICK_TOKEN` (kick token, a write credential that runs board kicks). It never renders into control, Jobs, or top-level `extraEnv`; use these `router.board.*` keys, not `extraEnv`, so it stays out of control (the pod with Kubernetes API access).
+
+Setting either token requires `router.board.enabled=true`; the render fails otherwise. Jumi disarms the kick tool when the kick token equals the read or peer token.
+
 ## Jobs
 
 Engine rows use the reviewer image (`jobs.engine.timeoutMs` default 1800000, requests `100m/512Mi`, limit `4Gi`). Worker rows use the worker image (`jobs.worker.timeoutMs` default 14400000, requests `100m/512Mi`, limit `8Gi`).
@@ -169,6 +178,12 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.5.0
+
+- Chart `0.6.0` pins Jumi `v11.3.1` (includes the Codex `config.toml` bootstrap fix for review-MCP `http_headers`, Jumi v11.1.22). `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- No value changes required. On `FORGE=github`, also subscribe the GitHub App to the **Issue dependencies** event (Jumi v11.2.13 #670) so a removed "blocked by" link wakes the blocked issue. See the app README for the event list.
+- New optional router-only values: `router.board.mcpTokenSecret` and `router.board.mcpKickTokenSecret` (`{name, key}`, both empty by default) set `BOARD_MCP_TOKEN` / `BOARD_MCP_KICK_TOKEN` from an existing Secret, rendered only into the router. Setting either requires `router.board.enabled=true`. The kick token is a write credential; keep it in these keys, never in top-level `extraEnv`.
 
 ## Upgrade from 0.4.0
 
