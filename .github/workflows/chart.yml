@@ -293,7 +293,7 @@ jobs:
       contents: read
     services:
       registry:
-        image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 # 2.8.3
+        image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c # 2.8.3
         ports:
           - 5000:5000
     steps:
