@@ -112,6 +112,50 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- fail "router.board.ingress.tls.secretName is required when router.board.ingress.tls.enabled" }}
 {{- end }}
 {{- end }}
+{{- $mcpTokenSet := or .Values.router.board.mcpTokenSecret.name .Values.router.board.mcpTokenSecret.key }}
+{{- $mcpKickSet := or .Values.router.board.mcpKickTokenSecret.name .Values.router.board.mcpKickTokenSecret.key }}
+{{- if $mcpTokenSet }}
+{{- if not .Values.router.board.enabled }}
+{{- fail "router.board.enabled must be true when router.board.mcpTokenSecret is set (MCP is served on the board listener)" }}
+{{- end }}
+{{- if or (not .Values.router.board.mcpTokenSecret.name) (not .Values.router.board.mcpTokenSecret.key) }}
+{{- fail "router.board.mcpTokenSecret requires both name and key" }}
+{{- end }}
+{{- end }}
+{{- if $mcpKickSet }}
+{{- if not .Values.router.board.enabled }}
+{{- fail "router.board.enabled must be true when router.board.mcpKickTokenSecret is set (MCP is served on the board listener)" }}
+{{- end }}
+{{- if or (not .Values.router.board.mcpKickTokenSecret.name) (not .Values.router.board.mcpKickTokenSecret.key) }}
+{{- fail "router.board.mcpKickTokenSecret requires both name and key" }}
+{{- end }}
+{{- end }}
+{{- $routerOnlyKeys := list "BOARD_MCP_TOKEN" "BOARD_MCP_KICK_TOKEN" }}
+{{- range $e := .Values.extraEnv }}
+{{- if has $e.name $routerOnlyKeys }}
+{{- fail (printf "extraEnv must not set %s: it is router-only, use router.board.mcpTokenSecret / router.board.mcpKickTokenSecret" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.control.extraEnv }}
+{{- if has $e.name $routerOnlyKeys }}
+{{- fail (printf "control.extraEnv must not set %s: it is router-only" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.jobs.extraEnv }}
+{{- if has $e.name $routerOnlyKeys }}
+{{- fail (printf "jobs.extraEnv must not set %s: it is router-only" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.jobs.engine.extraEnv }}
+{{- if has $e.name $routerOnlyKeys }}
+{{- fail (printf "jobs.engine.extraEnv must not set %s: it is router-only" $e.name) }}
+{{- end }}
+{{- end }}
+{{- range $e := .Values.jobs.worker.extraEnv }}
+{{- if has $e.name $routerOnlyKeys }}
+{{- fail (printf "jobs.worker.extraEnv must not set %s: it is router-only" $e.name) }}
+{{- end }}
+{{- end }}
 {{- if gt (int .Values.router.replicas) 1 }}
 {{- fail "router.replicas must be 1" }}
 {{- end }}
@@ -256,6 +300,35 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- with .Values.phoenix.publicHost }}
 - name: PHOENIX_PUBLIC_HOST
   value: {{ . | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
+Router-only board MCP tokens. Both reference an existing Secret + key and
+render only into the router Deployment. The MCP is served on the board
+listener, so validation requires router.board.enabled when either is set.
+BOARD_MCP_KICK_TOKEN is a write credential: keep it out of control, Jobs
+and top-level extraEnv (see validation above).
+*/}}
+{{- define "jumi.boardMcpEnv" -}}
+{{- $board := .Values.router.board }}
+{{- with $board.mcpTokenSecret }}
+{{- if or .name .key }}
+- name: BOARD_MCP_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .name }}
+      key: {{ .key }}
+{{- end }}
+{{- end }}
+{{- with $board.mcpKickTokenSecret }}
+{{- if or .name .key }}
+- name: BOARD_MCP_KICK_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .name }}
+      key: {{ .key }}
+{{- end }}
 {{- end }}
 {{- end }}
 

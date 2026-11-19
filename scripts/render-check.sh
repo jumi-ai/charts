@@ -25,7 +25,7 @@ render hooks -f "$chart/ci/hooks-values.yaml"
 render hooks-readonly-off -f "$chart/ci/hooks-values.yaml" \
   --set containerSecurityContext.readOnlyRootFilesystem=false
 render digest -f "$chart/ci/gitea-values.yaml" \
-  --set image.reviewer.tag=v11.1.15@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set image.reviewer.tag=v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # Split storageClass: one role pinned, the other unset. The chart's own Jobs
 # must still pass the chart's own gate (per-role exact rules admit this;
 # the generic union rule must stay permissive on presence).
@@ -53,6 +53,13 @@ render unsandboxed -f "$chart/ci/gitea-values.yaml" \
 render setup-max -f "$chart/ci/gitea-values.yaml" \
   --set jobs.engine.setupTimeoutMaxMs=3600000 \
   --set jobs.worker.setupTimeoutMaxMs=21600000
+# Board MCP tokens: router-only, require the board listener.
+render board-mcp -f "$chart/ci/gitea-values.yaml" \
+  --set router.board.enabled=true \
+  --set router.board.mcpTokenSecret.name=board-mcp-secret \
+  --set router.board.mcpTokenSecret.key=token \
+  --set router.board.mcpKickTokenSecret.name=board-mcp-kick-secret \
+  --set router.board.mcpKickTokenSecret.key=kick-token
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -88,6 +95,34 @@ if helm template jumi "$chart" --namespace default \
   exit 1
 fi
 grep -F "jobs.engine.extraEnv must not set SETUP_TIMEOUT_MAX_MS" "$work/bad-setup.err" >/dev/null
+# Board MCP tokens require the board listener.
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set router.board.mcpTokenSecret.name=board-mcp-secret \
+  --set router.board.mcpTokenSecret.key=token \
+  >"$work/bad-board-mcp.yaml" 2>"$work/bad-board-mcp.err"; then
+  echo "expected router.board.mcpTokenSecret without board to fail the render" >&2
+  exit 1
+fi
+grep -F "router.board.enabled must be true when router.board.mcpTokenSecret is set" "$work/bad-board-mcp.err" >/dev/null
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set router.board.mcpKickTokenSecret.name=board-mcp-kick-secret \
+  --set router.board.mcpKickTokenSecret.key=kick-token \
+  >"$work/bad-board-mcp-kick.yaml" 2>"$work/bad-board-mcp-kick.err"; then
+  echo "expected router.board.mcpKickTokenSecret without board to fail the render" >&2
+  exit 1
+fi
+grep -F "router.board.enabled must be true when router.board.mcpKickTokenSecret is set" "$work/bad-board-mcp-kick.err" >/dev/null
+# The kick token is router-only: top-level extraEnv must not set it.
+if helm template jumi "$chart" --namespace default \
+  -f "$chart/ci/gitea-values.yaml" \
+  --set-json 'extraEnv=[{"name":"BOARD_MCP_KICK_TOKEN","value":"x"}]' \
+  >"$work/bad-board-mcp-extra.yaml" 2>"$work/bad-board-mcp-extra.err"; then
+  echo "expected extraEnv BOARD_MCP_KICK_TOKEN to fail the render" >&2
+  exit 1
+fi
+grep -F "extraEnv must not set BOARD_MCP_KICK_TOKEN" "$work/bad-board-mcp-extra.err" >/dev/null
 
 python3 - "$work" <<'PY'
 import sys, json
@@ -125,9 +160,9 @@ def has_kind_component(text, kind, component):
 gitea = (work / "gitea.yaml").read_text()
 if 'value: "disabled"' not in gitea:
     raise SystemExit("gitea render did not set OPENCODE_WELLKNOWN_URL=disabled")
-if "ghcr.io/jumi-ai/jumi-reviewer:v11.1.15" not in gitea:
+if "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1" not in gitea:
     raise SystemExit("reviewer image tag is not v<appVersion>")
-if "ghcr.io/jumi-ai/jumi-worker:v11.1.15" not in gitea:
+if "ghcr.io/jumi-ai/jumi-worker:v11.3.1" not in gitea:
     raise SystemExit("worker image tag is not v<appVersion>")
 if "JUMI_RUNNERS_FILE" in gitea or "extra-secrets" in gitea:
     raise SystemExit("default gitea render leaked overlay config")
@@ -422,7 +457,7 @@ for name in ("gitea", "github", "codex", "overlay", "postgres", "ingress", "hook
         raise SystemExit(f"{name}: worker must use worker image")
 
 digest = (work / "digest.yaml").read_text()
-pin = "ghcr.io/jumi-ai/jumi-reviewer:v11.1.15@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pin = "ghcr.io/jumi-ai/jumi-reviewer:v11.3.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if pin not in digest:
     raise SystemExit("digest pin was dropped")
 # Split storageClass regression: engine pinned, worker unset.
@@ -504,7 +539,7 @@ if fu_env.get("FOLLOWUP_TIMEOUT_MS") != "20000000":
 if fu["spec"]["activeDeadlineSeconds"] * 1000 <= int(fu_env["LEASE_MS"]):
     raise SystemExit("raised-followup/worker: deadline must exceed largest effective lease")
 # Default render carries none of the new deploy keys.
-for _key in ("JUMI_GIT_NAME", "JUMI_GIT_EMAIL", "PHOENIX_PUBLIC_HOST", "JUMI_CACHE_DIR", "JUMI_ALLOW_UNSANDBOXED_REVIEWS", "SETUP_TIMEOUT_MAX_MS"):
+for _key in ("JUMI_GIT_NAME", "JUMI_GIT_EMAIL", "PHOENIX_PUBLIC_HOST", "JUMI_CACHE_DIR", "JUMI_ALLOW_UNSANDBOXED_REVIEWS", "SETUP_TIMEOUT_MAX_MS", "BOARD_MCP_TOKEN", "BOARD_MCP_KICK_TOKEN"):
     if _key in gitea:
         raise SystemExit(f"default gitea render must not set {_key}")
 if '"mountPath": "/cache"' in gitea or "mountPath: /cache" in gitea:
@@ -575,5 +610,22 @@ for _role, _job in setup.items():
         raise SystemExit(f"setup-max/{_role}: SETUP_TIMEOUT_MAX_MS missing")
     if _job["spec"]["activeDeadlineSeconds"] * 1000 <= int(_env["LEASE_MS"]):
         raise SystemExit(f"setup-max/{_role}: deadline must exceed largest effective lease")
+# Board MCP tokens render only into the router Deployment.
+_mcp_text = (work / "board-mcp.yaml").read_text()
+_mcp_docs = docs("board-mcp")
+_mcp_router = next(d for d in _mcp_docs if has_kind_component(d, "Deployment", "router"))
+_mcp_control = [d for d in _mcp_docs if has_kind_component(d, "StatefulSet", "control")]
+for _key, _secret, _skey in (("BOARD_MCP_TOKEN", "board-mcp-secret", "token"), ("BOARD_MCP_KICK_TOKEN", "board-mcp-kick-secret", "kick-token")):
+    if _key not in _mcp_router or _secret not in _mcp_router or _skey not in _mcp_router:
+        raise SystemExit(f"board-mcp router missing {_key} secretKeyRef {_secret}/{_skey}")
+    for _doc in _mcp_control:
+        if _key in _doc:
+            raise SystemExit(f"board-mcp/{_key} must be absent from control")
+_mcp_jobs = load_jobs("board-mcp")
+for _role in ("engine", "worker"):
+    _env = {e["name"] for e in _mcp_jobs[_role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    for _key in ("BOARD_MCP_TOKEN", "BOARD_MCP_KICK_TOKEN"):
+        if _key in _env:
+            raise SystemExit(f"board-mcp/{_role}: {_key} must be absent from Job templates")
 print("render-check ok")
 PY

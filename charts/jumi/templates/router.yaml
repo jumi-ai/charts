@@ -87,6 +87,7 @@ spec:
             {{- include "jumi.automergeEnv" $root | nindent 12 }}
             {{- include "jumi.gitEnv" $root | nindent 12 }}
             {{- include "jumi.phoenixEnv" $root | nindent 12 }}
+            {{- include "jumi.boardMcpEnv" $root | nindent 12 }}
             {{- if $root.Values.jobs.engine.allowUnsandboxedReviews }}
             - name: JUMI_ALLOW_UNSANDBOXED_REVIEWS
               value: "1"
