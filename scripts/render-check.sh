@@ -53,6 +53,14 @@ render unsandboxed -f "$chart/ci/gitea-values.yaml" \
 render setup-max -f "$chart/ci/gitea-values.yaml" \
   --set jobs.engine.setupTimeoutMaxMs=3600000 \
   --set jobs.worker.setupTimeoutMaxMs=21600000
+# Optionals that only render when set: allowed repos, install id, model.
+render full-gitea -f "$chart/ci/gitea-values.yaml" \
+  --set gitea.allowedRepos=example-repo \
+  --set opencode.model=jumi-model
+render full-github -f "$chart/ci/github-values.yaml" \
+  --set github.allowedRepos=example-repo \
+  --set github.installationId=123 \
+  --set opencode.model=jumi-model
 
 if helm template jumi "$chart" --namespace default \
   --set secret.existingSecret=jumi-secrets \
@@ -575,5 +583,30 @@ for _role, _job in setup.items():
         raise SystemExit(f"setup-max/{_role}: SETUP_TIMEOUT_MAX_MS missing")
     if _job["spec"]["activeDeadlineSeconds"] * 1000 <= int(_env["LEASE_MS"]):
         raise SystemExit(f"setup-max/{_role}: deadline must exceed largest effective lease")
+# Optional value keys only render when set: allowed repos, install id, model.
+full_gitea = (work / "full-gitea.yaml").read_text()
+if "GITEA_ALLOWED_REPOS" not in full_gitea or "example-repo" not in full_gitea:
+    raise SystemExit("full-gitea must render GITEA_ALLOWED_REPOS")
+if "OPENCODE_MODEL" not in full_gitea or "jumi-model" not in full_gitea:
+    raise SystemExit("full-gitea must render OPENCODE_MODEL")
+full_gitea_jobs = load_jobs("full-gitea")
+for _role in ("engine", "worker"):
+    _env = {e["name"]: e.get("value") for e in full_gitea_jobs[_role]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    if "GITEA_ALLOWED_REPOS" not in _env:
+        raise SystemExit(f"full-gitea/{_role}: GITEA_ALLOWED_REPOS missing in Job")
+    if _env.get("OPENCODE_MODEL") != "jumi-model":
+        raise SystemExit(f"full-gitea/{_role}: OPENCODE_MODEL missing in Job")
+if "GITEA_ALLOWED_REPOS" in gitea:
+    raise SystemExit("default gitea render must not set GITEA_ALLOWED_REPOS")
+full_github = (work / "full-github.yaml").read_text()
+if "GITHUB_ALLOWED_REPOS" not in full_github or "GITHUB_APP_INSTALLATION_ID" not in full_github:
+    raise SystemExit("full-github must render GITHUB_ALLOWED_REPOS and GITHUB_APP_INSTALLATION_ID")
+if "OPENCODE_MODEL" not in full_github:
+    raise SystemExit("full-github must render OPENCODE_MODEL")
+# Control value keys render by default on the StatefulSet.
+if "CONTROL_DISPATCH_ENGINE" not in gitea or "CONTROL_ENGINE_MAX_JOBS" not in gitea:
+    raise SystemExit("gitea control must render CONTROL_DISPATCH_ENGINE and CONTROL_ENGINE_MAX_JOBS")
+if "CONTROL_DISPATCH_POLL_MS" not in gitea or "CONTROL_JOB_STARTUP_TIMEOUT_MS" not in gitea:
+    raise SystemExit("gitea control must render CONTROL_DISPATCH_POLL_MS and CONTROL_JOB_STARTUP_TIMEOUT_MS")
 print("render-check ok")
 PY

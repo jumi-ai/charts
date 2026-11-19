@@ -153,6 +153,56 @@ Auto-merge: `automergeEnabled` (default `true`, matching the app default) render
 - `router.extraEnv` / `router.extraEnvFrom` add env to the router only; `control.extraEnv` / `control.extraEnvFrom` add env to control only. Top-level `extraEnv` / `extraEnvFrom` still render into both, so existing values keep working. Use the `router.*` keys for a router-only token (e.g. a board-peer token).
 - `containerSecurityContext.readOnlyRootFilesystem: true` (default) applies to router, control, Postgres-wait init containers and both Job templates. Every writable path is a volume (Job `/tmp` is a disk-backed claim, `/run/jumi-secrets` is a memory `emptyDir`, plus `/data`, `/home/jumi`, `/work`).
 
+## Contract keys
+
+Every env key in `deploy/contract.md` at the pinned `appVersion` is classified in `charts/jumi/contract-keys.yaml`:
+
+- `value` renders from a chart value (see the values above).
+- `extraEnv` is deliberately left to `extraEnv` / `router.extraEnv` / `control.extraEnv` / `jobs.extraEnv`. Set it there; no chart value will be added.
+- `internal` is set by the entrypoint, Kubernetes or the chart itself; do not set it.
+
+`contract-check.sh` fails when the contract has a key that is not classified, when a `value` key does not render, and when this list drifts from `contract-keys.yaml`.
+
+<!-- contract-keys:extraEnv:start -->
+- `BOARD_PEER_TOKEN` (router): peer factory board token. Router-only; use `router.extraEnv` / `router.extraEnvFrom`.
+- `BOARD_PEER_URL` (router): peer factory board URL (port 3001). Set via `router.extraEnv` when peering factories.
+- `CODEX_REFRESH_TOKEN_URL_OVERRIDE` (control): Codex refresh URL override. Set via `control.extraEnv` when testing.
+- `CONTROL_JOB_NAMESPACE` (control): Job namespace override. Set via `control.extraEnv` when needed.
+- `CONTROL_K8S_API_URL` (control): Kubernetes API override. Set via `control.extraEnv` when needed.
+- `CONTROL_K8S_CA_FILE` (control): Kubernetes CA override. Set via `control.extraEnv` when needed.
+- `CONTROL_K8S_TOKEN_FILE` (control): service-account token override. Set via `control.extraEnv` when needed.
+- `CONTROL_POLL_MS` (control): control poll interval. Set via `control.extraEnv` when tuning.
+- `FOLLOWUP_IGNORE_LOGINS` (router, engine, worker): login ignore list. Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
+- `GITEA_WEBHOOK_AUTH_TOKEN` (router): Gitea webhook auth token (long-lived). Router-only; chart runs no `worker_server`.
+- `GRADLE_SEED_HOME` (engine, worker): read-only Gradle seed. Set via `jobs.extraEnv` when warming caches.
+- `IGNORE_CONFLICTS_LABEL` (router): conflict label (long-lived). Router-only; chart runs no `worker_server`.
+- `JUMI_AUTOMERGE_REPOS` (router, engine, worker): deprecated. No chart value; use `automergeEnabled` plus per-repo `.jumi.yml`.
+- `JUMI_CHECKPOINT_ENABLED` (engine, worker): worker checkpoint toggle. Set via `jobs.extraEnv` when needed.
+- `JUMI_CHECKPOINT_INTERVAL_MS` (engine, worker): checkpoint interval. Set via `jobs.extraEnv` when needed.
+- `JUMI_CHECKPOINT_MAX_AGE_MS` (engine, worker): checkpoint max age. Set via `jobs.extraEnv` when needed.
+- `JUMI_SEARXNG_URL` (router, engine, worker): optional `http(s)` SearXNG base URL. Set via `jobs.extraEnv`; needs no chart value.
+- `MAX_CONFLICT_ROUNDS` (engine, worker): worker conflict rounds cap. Set via `jobs.extraEnv` when needed.
+- `MAX_FILES` (router): review file cap (reviewer). Set via `router.extraEnv` when needed.
+- `MAX_FILES_MAX` (router): review file ceiling (reviewer). Set via `router.extraEnv`; no chart value.
+- `MAX_FOLLOWUP_ROUNDS` (router, engine, worker): follow-up rounds cap. Set via `jobs.extraEnv` when needed.
+- `MAX_INCOMPLETE_RETRIES` (router, engine, worker): incomplete-run retries cap. Set via `jobs.extraEnv` when needed.
+- `MAX_JOB_ATTEMPTS` (router, engine, worker): job attempts cap. Set via `jobs.extraEnv` when needed.
+- `MAX_OUTPUT_BYTES` (router, engine, worker): output bytes cap. Set via `jobs.extraEnv` when needed.
+- `MAX_PATCH_BYTES` (router): patch bytes cap (reviewer). Set via `router.extraEnv` when needed.
+- `MAX_PATCH_BYTES_MAX` (router): patch bytes ceiling (reviewer). Set via `router.extraEnv`; no chart value.
+- `MAX_WEBHOOK_BYTES` (router): webhook bytes cap (long-lived). Router-only; chart runs no `worker_server`.
+- `OPENCODE_CONFIG` (router, engine, worker): OpenCode config override. Set via `jobs.extraEnv` when needed.
+- `OPENCODE_FALLBACK_MODEL` (router, engine, worker): OpenCode fallback model. Set via `jobs.extraEnv` when needed.
+- `OPENCODE_FALLBACK_VARIANT` (router, engine, worker): OpenCode fallback variant. Set via `jobs.extraEnv` when needed.
+- `OPENCODE_VARIANT` (router, engine, worker): OpenCode variant. Set via `jobs.extraEnv` when needed.
+- `OPENCODE_WELLKNOWN_KEY` (router, engine, worker): well-known key. Set via `jobs.extraEnv` when needed.
+- `OPENCODE_WELLKNOWN_TOKEN` (router, engine, worker): well-known token. Set via `jobs.extraEnv` when needed.
+- `PHOENIX_OTLP_ENDPOINT` (router, engine, worker): Phoenix OTLP endpoint (in-cluster base URL). Set via `jobs.extraEnv` when tracing.
+- `QUEUE_CONCURRENCY` (router): queue concurrency (long-lived). Router-only; chart runs no `worker_server`.
+- `REVIEW_BLOCKING_QUESTION_AUTHORS` (router, engine, worker): review blocking authors list. Set via `jobs.extraEnv` when needed.
+- `TRUSTED_SENDER_LOGINS` (router, engine, worker): trusted sender logins. Per-repo `.jumi.yml` covers this; `jobs.extraEnv` when needed.
+<!-- contract-keys:extraEnv:end -->
+
 ## Database
 
 Router, control and both Job templates use `DATABASE_URL` from `secret.existingSecret` + `secret.databaseUrlKey` by default (or the bundled Postgres password wiring when `postgres.enabled`). Set `database.existingSecret` + `database.urlKey` (default empty = today's behaviour) to use a separate Secret, e.g. a CNPG app Secret. The named Secret is auto-allowlisted.

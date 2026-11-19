@@ -1,0 +1,356 @@
+# Classification of every env key in deploy/contract.md.
+# Each key gets exactly one kind:
+#   value    - rendered from a chart value (contract-check fails when it does not render).
+#   extraEnv - deliberately left to extraEnv / router.extraEnv / jobs.extraEnv.
+#              Name the chart component(s) it belongs to: router, control, engine, worker.
+#   internal - set by the entrypoint, Kubernetes or the chart itself, not by installers.
+# When Jumi adds a contract key, add it here or contract-check.sh fails.
+keys:
+  GITEA_URL:
+    kind: value
+    via: gitea.url
+    components: [router, engine, worker]
+  GITEA_BOT_TOKEN:
+    kind: value
+    via: secret.existingSecret + secret.giteaTokenKey
+    components: [router, engine, worker]
+  GITEA_WEBHOOK_SECRET:
+    kind: value
+    via: secret.existingSecret + secret.giteaWebhookKey
+    components: [router]
+  GITEA_ALLOWED_ORGS:
+    kind: value
+    via: gitea.allowedOrgs
+    components: [router, engine, worker]
+  GITEA_ALLOWED_REPOS:
+    kind: value
+    via: gitea.allowedRepos
+    components: [router, engine, worker]
+  FORGE:
+    kind: value
+    via: forge
+    components: [router, engine, worker]
+  FORGE_URL:
+    kind: value
+    via: github.url
+    components: [router, engine, worker]
+  GITHUB_APP_ID:
+    kind: value
+    via: github.appId
+    components: [router, engine, worker]
+  GITHUB_APP_INSTALLATION_ID:
+    kind: value
+    via: github.installationId
+    components: [router, engine, worker]
+  GITHUB_ALLOWED_ORGS:
+    kind: value
+    via: github.allowedOrgs
+    components: [router, engine, worker]
+  GITHUB_ALLOWED_REPOS:
+    kind: value
+    via: github.allowedRepos
+    components: [router, engine, worker]
+  GITHUB_APP_PRIVATE_KEY:
+    kind: value
+    via: secret.existingSecret + secret.githubPrivateKeyKey
+    components: [router, engine, worker]
+  GITHUB_WEBHOOK_SECRET:
+    kind: value
+    via: secret.existingSecret + secret.githubWebhookKey
+    components: [router]
+  BOT_USERNAME:
+    kind: value
+    via: gitea.botUsername / github.botUsername
+    components: [router, engine, worker]
+  DATABASE_URL:
+    kind: value
+    via: secret.existingSecret + secret.databaseUrlKey / database.existingSecret + database.urlKey / postgres.enabled
+    components: [router, control, engine, worker]
+  OPENCODE_WELLKNOWN_URL:
+    kind: value
+    via: opencode.wellKnownUrl
+    components: [router, control, engine, worker]
+  OPENCODE_MODEL:
+    kind: value
+    via: opencode.model
+    components: [router, control, engine, worker]
+  JUMI_AUTOMERGE_ENABLED:
+    kind: value
+    via: automergeEnabled
+    components: [router, engine, worker]
+  JUMI_GIT_NAME:
+    kind: value
+    via: git.name
+    components: [router, engine, worker]
+  JUMI_GIT_EMAIL:
+    kind: value
+    via: git.email
+    components: [router, engine, worker]
+  PHOENIX_PUBLIC_HOST:
+    kind: value
+    via: phoenix.publicHost
+    components: [router, engine, worker]
+  JUMI_ALLOW_UNSANDBOXED_REVIEWS:
+    kind: value
+    via: jobs.engine.allowUnsandboxedReviews
+    components: [router, engine]
+  OPENCODE_TIMEOUT_MS:
+    kind: value
+    via: jobs.engine.timeoutMs / jobs.worker.timeoutMs
+    components: [engine, worker]
+  OPENCODE_TIMEOUT_MAX_MS:
+    kind: value
+    via: jobs.engine.timeoutMaxMs / jobs.worker.timeoutMaxMs
+    components: [engine, worker]
+  FOLLOWUP_TIMEOUT_MS:
+    kind: value
+    via: jobs.worker.followupTimeoutMs
+    components: [worker]
+  FOLLOWUP_TIMEOUT_MAX_MS:
+    kind: value
+    via: jobs.worker.followupTimeoutMaxMs
+    components: [worker]
+  CONFLICT_TIMEOUT_MS:
+    kind: value
+    via: jobs.worker.conflictTimeoutMs
+    components: [worker]
+  CONFLICT_TIMEOUT_MAX_MS:
+    kind: value
+    via: jobs.worker.conflictTimeoutMaxMs
+    components: [worker]
+  SETUP_TIMEOUT_MAX_MS:
+    kind: value
+    via: jobs.engine.setupTimeoutMaxMs / jobs.worker.setupTimeoutMaxMs
+    components: [engine, worker]
+  LEASE_MS:
+    kind: value
+    via: derived from largest effective timeout per role
+    components: [engine, worker]
+  CONTROL_DISPATCH_ENGINE:
+    kind: value
+    via: control.dispatchEngine
+    components: [control]
+  CONTROL_DISPATCH_WORKER:
+    kind: value
+    via: control.dispatchWorker
+    components: [control]
+  CONTROL_ENGINE_MAX_JOBS:
+    kind: value
+    via: control.engineMaxJobs
+    components: [control]
+  CONTROL_WORKER_MAX_JOBS:
+    kind: value
+    via: control.workerMaxJobs
+    components: [control]
+  CONTROL_DISPATCH_POLL_MS:
+    kind: value
+    via: control.dispatchPollMs
+    components: [control]
+  CONTROL_JOB_STARTUP_TIMEOUT_MS:
+    kind: value
+    via: control.jobStartupTimeoutMs
+    components: [control]
+  CONTROL_SECRET_NAME:
+    kind: value
+    via: codex.enabled (chart-owned token Secret name)
+    components: [control]
+  CONTROL_SECRET_NAMESPACE:
+    kind: value
+    via: codex.enabled (release namespace)
+    components: [control]
+  CODEX_AUTH_FILE:
+    kind: value
+    via: codex.enabled (/codex/auth.json)
+    components: [engine, worker]
+  JUMI_RUNNERS_FILE:
+    kind: value
+    via: jobs.engine.runnersFile / jobs.worker.runnersFile + config.files
+    components: [engine, worker]
+  JUMI_CACHE_DIR:
+    kind: value
+    via: jobs.worker.cache.enabled + jobs.worker.cache.existingClaim (/cache)
+    components: [worker]
+  JUMI_ROLE:
+    kind: internal
+    note: Set by the chart (router/control). Jobs get JUMI_JOB_ID instead.
+  HOME:
+    kind: internal
+    note: Set by the chart (/data on control, /home/jumi in Jobs). Router uses image default.
+  WORKDIR:
+    kind: internal
+    note: Set by the chart (/work in Jobs).
+  JUMI_SECRETS_DIR:
+    kind: internal
+    note: Set by the chart (/run/jumi-secrets in Jobs, memory emptyDir).
+  JUMI_SECRETS_FILE:
+    kind: internal
+    note: Written by the image entrypoint (tmpfs 0600, unlinked on read), not by GitOps.
+  JUMI_JOB_ID:
+    kind: internal
+    note: Placeholder in the Job template; control fills in the ledger row id per Job.
+  CONTROL_ENGINE_JOB_TEMPLATE_FILE:
+    kind: internal
+    note: Set by the chart (/etc/jumi/jobs/engine.json, ConfigMap mount).
+  CONTROL_WORKER_JOB_TEMPLATE_FILE:
+    kind: internal
+    note: Set by the chart (/etc/jumi/jobs/worker.json, ConfigMap mount).
+  HOST:
+    kind: internal
+    note: App default (3000/3001 wiring in chart). Do not override via extraEnv.
+  PORT:
+    kind: internal
+    note: App default (3000/3001 wiring in chart). Do not override via extraEnv.
+  KUBERNETES_SERVICE_HOST:
+    kind: internal
+    note: Set by Kubernetes in control (in-cluster API discovery).
+  KUBERNETES_SERVICE_PORT:
+    kind: internal
+    note: Set by Kubernetes in control (in-cluster API discovery).
+  BOARD_PEER_URL:
+    kind: extraEnv
+    components: [router]
+    note: Peer factory board URL (port 3001). Set via router.extraEnv when peering factories.
+  BOARD_PEER_TOKEN:
+    kind: extraEnv
+    components: [router]
+    note: Peer factory board token. Router-only; use router.extraEnv / router.extraEnvFrom.
+  CODEX_REFRESH_TOKEN_URL_OVERRIDE:
+    kind: extraEnv
+    components: [control]
+    note: Optional Codex refresh URL override for control. Set via control.extraEnv when testing.
+  CONTROL_JOB_NAMESPACE:
+    kind: extraEnv
+    components: [control]
+    note: Optional Job namespace override for control. Set via control.extraEnv when needed.
+  CONTROL_K8S_API_URL:
+    kind: extraEnv
+    components: [control]
+    note: Optional Kubernetes API override for control. Set via control.extraEnv when needed.
+  CONTROL_K8S_CA_FILE:
+    kind: extraEnv
+    components: [control]
+    note: Optional Kubernetes CA override for control. Set via control.extraEnv when needed.
+  CONTROL_K8S_TOKEN_FILE:
+    kind: extraEnv
+    components: [control]
+    note: Optional service-account token override for control. Set via control.extraEnv when needed.
+  CONTROL_POLL_MS:
+    kind: extraEnv
+    components: [control]
+    note: Optional control poll interval. Set via control.extraEnv when tuning.
+  FOLLOWUP_IGNORE_LOGINS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional login ignore list. Set via jobs.extraEnv / top-level extraEnv when needed.
+  GITEA_WEBHOOK_AUTH_TOKEN:
+    kind: extraEnv
+    components: [router]
+    note: Optional Gitea webhook auth token (long-lived reviewer/worker). Router-only; chart runs no worker_server.
+  GRADLE_SEED_HOME:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional read-only Gradle seed mount. Set via jobs.extraEnv when warming worker caches.
+  IGNORE_CONFLICTS_LABEL:
+    kind: extraEnv
+    components: [router]
+    note: Optional conflict label (long-lived). Router-only; chart runs no worker_server.
+  JUMI_AUTOMERGE_REPOS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Deprecated. No chart value; use automergeEnabled plus per-repo .jumi.yml.
+  JUMI_CHECKPOINT_ENABLED:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional worker checkpoint toggle. Set via jobs.extraEnv when needed.
+  JUMI_CHECKPOINT_INTERVAL_MS:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional checkpoint interval. Set via jobs.extraEnv when needed.
+  JUMI_CHECKPOINT_MAX_AGE_MS:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional checkpoint max age. Set via jobs.extraEnv when needed.
+  JUMI_SEARXNG_URL:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional http(s) SearXNG base URL. Set via jobs.extraEnv; needs no chart value.
+  MAX_CONFLICT_ROUNDS:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional worker conflict rounds cap. Set via jobs.extraEnv when needed.
+  MAX_FILES:
+    kind: extraEnv
+    components: [router]
+    note: Optional review file cap (reviewer). Set via router.extraEnv when needed.
+  MAX_FILES_MAX:
+    kind: extraEnv
+    components: [router]
+    note: Optional review file ceiling (reviewer). Set via router.extraEnv; no chart value.
+  MAX_FOLLOWUP_ROUNDS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional follow-up rounds cap. Set via jobs.extraEnv when needed.
+  MAX_INCOMPLETE_RETRIES:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional incomplete-run retries cap. Set via jobs.extraEnv when needed.
+  MAX_JOB_ATTEMPTS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional job attempts cap. Set via jobs.extraEnv when needed.
+  MAX_OUTPUT_BYTES:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional output bytes cap. Set via jobs.extraEnv when needed.
+  MAX_PATCH_BYTES:
+    kind: extraEnv
+    components: [router]
+    note: Optional patch bytes cap (reviewer). Set via router.extraEnv when needed.
+  MAX_PATCH_BYTES_MAX:
+    kind: extraEnv
+    components: [router]
+    note: Optional patch bytes ceiling (reviewer). Set via router.extraEnv; no chart value.
+  MAX_WEBHOOK_BYTES:
+    kind: extraEnv
+    components: [router]
+    note: Optional webhook bytes cap (long-lived). Router-only; chart runs no worker_server.
+  OPENCODE_CONFIG:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional OpenCode config override. Set via jobs.extraEnv when needed.
+  OPENCODE_FALLBACK_MODEL:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional OpenCode fallback model. Set via jobs.extraEnv when needed.
+  OPENCODE_FALLBACK_VARIANT:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional OpenCode fallback variant. Set via jobs.extraEnv when needed.
+  OPENCODE_VARIANT:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional OpenCode variant. Set via jobs.extraEnv when needed.
+  OPENCODE_WELLKNOWN_KEY:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional well-known key. Set via jobs.extraEnv when needed.
+  OPENCODE_WELLKNOWN_TOKEN:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional well-known token. Set via jobs.extraEnv when needed.
+  PHOENIX_OTLP_ENDPOINT:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional Phoenix OTLP endpoint (in-cluster base URL). Set via jobs.extraEnv when tracing.
+  QUEUE_CONCURRENCY:
+    kind: extraEnv
+    components: [router]
+    note: Optional queue concurrency (long-lived). Router-only; chart runs no worker_server.
+  REVIEW_BLOCKING_QUESTION_AUTHORS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional review blocking authors list. Set via jobs.extraEnv when needed.
+  TRUSTED_SENDER_LOGINS:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional trusted sender logins. Per-repo .jumi.yml covers this; jobs.extraEnv when needed.

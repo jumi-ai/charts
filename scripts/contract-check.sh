@@ -30,12 +30,50 @@ render postgres -f "$chart/ci/postgres-values.yaml"
 render ingress -f "$chart/ci/ingress-values.yaml"
 render overlay -f "$chart/ci/overlay-values.yaml"
 render hooks -f "$chart/ci/hooks-values.yaml"
+# Full-value renders: enable every optional value knob so the value-kind
+# coverage check below can prove each `value` key renders somewhere.
+# gitea-full covers gitea-side optionals, github-full covers github-side.
+render gitea-full -f "$chart/ci/gitea-values.yaml" \
+  --set gitea.allowedRepos=example-repo \
+  --set git.name=jumi-ci \
+  --set git.email=jumi-ci@example \
+  --set phoenix.publicHost=phoenix.example \
+  --set opencode.model=jumi-model \
+  --set jobs.engine.timeoutMaxMs=3600000 \
+  --set jobs.engine.setupTimeoutMaxMs=3600000 \
+  --set jobs.worker.timeoutMaxMs=21600000 \
+  --set jobs.worker.followupTimeoutMs=20000000 \
+  --set jobs.worker.followupTimeoutMaxMs=21600000 \
+  --set jobs.worker.conflictTimeoutMs=1000000 \
+  --set jobs.worker.conflictTimeoutMaxMs=2000000 \
+  --set jobs.worker.setupTimeoutMaxMs=21600000 \
+  --set jobs.engine.allowUnsandboxedReviews=true
+render github-full -f "$chart/ci/github-values.yaml" \
+  --set github.allowedRepos=example-repo \
+  --set github.installationId=123 \
+  --set git.name=jumi-ci \
+  --set git.email=jumi-ci@example \
+  --set phoenix.publicHost=phoenix.example \
+  --set opencode.model=jumi-model \
+  --set jobs.engine.timeoutMaxMs=3600000 \
+  --set jobs.engine.setupTimeoutMaxMs=3600000 \
+  --set jobs.worker.timeoutMaxMs=21600000 \
+  --set jobs.worker.followupTimeoutMs=20000000 \
+  --set jobs.worker.followupTimeoutMaxMs=21600000 \
+  --set jobs.worker.conflictTimeoutMs=1000000 \
+  --set jobs.worker.conflictTimeoutMaxMs=2000000 \
+  --set jobs.worker.setupTimeoutMaxMs=21600000 \
+  --set jobs.engine.allowUnsandboxedReviews=true
+render cache -f "$chart/ci/gitea-values.yaml" \
+  --set jobs.worker.cache.enabled=true \
+  --set jobs.worker.cache.existingClaim=jumi-cache
 
-python3 - "$work" <<'PY'
+python3 - "$work" "$root" <<'PY'
 import json, re, sys
 from pathlib import Path
 
 work = Path(sys.argv[1])
+root = Path(sys.argv[2])
 contract = (work / "contract.md").read_text()
 
 def section(name):
@@ -67,6 +105,7 @@ for role in ("reviewer", "worker", "control", "job"):
     roles[role] = {
         "required": items(sec, "required env"),
         "gitops": items(sec, "gitops env"),
+        "optional": items(sec, "optional env"),
         "ports": items(sec, "ports"),
         "runAs": items(sec, "runAs"),
         "command": items(sec, "command"),
@@ -236,7 +275,88 @@ def check_render(name):
         if not codex and "CODEX_AUTH_FILE" in env:
             raise SystemExit(f"{name}/{role} job: CODEX_AUTH_FILE without codex")
 
-for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks"):
+for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks", "gitea-full", "github-full", "cache"):
     check_render(name)
+
+# ---- contract-keys.yaml classification ----
+keys_path = root / "charts/jumi/contract-keys.yaml"
+keys_text = keys_path.read_text()
+# Minimal stdlib parse: top-level `  KEY:` entries plus their `kind:`/`via:`/`components:` lines.
+classified = {}
+cur = None
+cur_block = []
+def parse_block(key, lines):
+    kind = None
+    via = None
+    components = None
+    note = None
+    for l in lines:
+        s = l.strip()
+        if s.startswith("kind:"):
+            kind = s.split(":", 1)[1].strip()
+        elif s.startswith("via:"):
+            via = s.split(":", 1)[1].strip()
+        elif s.startswith("components:"):
+            components = s.split(":", 1)[1].strip()
+        elif s.startswith("note:"):
+            note = s.split(":", 1)[1].strip()
+    return {"kind": kind, "via": via, "components": components, "note": note}
+for line in keys_text.splitlines():
+    m = re.match(r"^  ([A-Z0-9_]+):\s*$", line)
+    if m:
+        if cur:
+            classified[cur] = parse_block(cur, cur_block)
+        cur = m.group(1)
+        cur_block = []
+    elif cur is not None:
+        if re.match(r"^[A-Za-z_]", line) and not line.startswith(" ") and not line.startswith("#"):
+            classified[cur] = parse_block(cur, cur_block)
+            cur = None
+            cur_block = []
+        else:
+            cur_block.append(line)
+if cur:
+    classified[cur] = parse_block(cur, cur_block)
+
+contract_union = set()
+for role in ("reviewer", "worker", "control", "job"):
+    contract_union |= set(roles[role]["required"]) | set(roles[role]["gitops"]) | set(roles[role]["optional"])
+
+unclassified = sorted(contract_union - set(classified))
+if unclassified:
+    raise SystemExit(f"unclassified contract key(s): {', '.join(unclassified)} — add each to charts/jumi/contract-keys.yaml (value/extraEnv/internal)")
+
+for key, meta in sorted(classified.items()):
+    if meta["kind"] not in ("value", "extraEnv", "internal"):
+        raise SystemExit(f"{key}: unknown kind {meta['kind']!r} (want value/extraEnv/internal)")
+    if meta["kind"] == "value" and not meta["via"]:
+        raise SystemExit(f"{key}: value kind needs a `via:` chart value")
+    if meta["kind"] == "extraEnv" and not meta["components"]:
+        raise SystemExit(f"{key}: extraEnv kind must name component(s)")
+
+# Every `value` key must render somewhere across the fixtures (gitea+github
+# full renders enable every optional value knob; union covers forge splits).
+rendered = set()
+for p in work.glob("*.yaml"):
+    if p.name == "contract.md":
+        continue
+    t = p.read_text()
+    rendered |= set(re.findall(r"-\s*name:\s*([A-Z0-9_]+)", t))
+    rendered |= set(re.findall(r'"name":\s*"([A-Z0-9_]+)"', t))
+missing_value = sorted(k for k, m in classified.items() if m["kind"] == "value" and k not in rendered)
+if missing_value:
+    raise SystemExit(f"value key(s) do not render: {', '.join(missing_value)}")
+
+# README extraEnv section must match the classification exactly.
+readme = (root / "charts/jumi/README.md").read_text()
+m = re.search(r"<!-- contract-keys:extraEnv:start -->([\s\S]*?)<!-- contract-keys:extraEnv:end -->", readme)
+if not m:
+    raise SystemExit("README contract-keys extraEnv section markers missing")
+readme_keys = set(re.findall(r"`([A-Z0-9_]+)`", m.group(1)))
+extra_keys = {k for k, v in classified.items() if v["kind"] == "extraEnv"}
+if readme_keys != extra_keys:
+    only_readme = sorted(readme_keys - extra_keys)
+    only_keys = sorted(extra_keys - readme_keys)
+    raise SystemExit(f"README extraEnv section drifts from contract-keys.yaml (only in README: {only_readme}; only in keys file: {only_keys})")
 print("contract-check ok")
 PY
