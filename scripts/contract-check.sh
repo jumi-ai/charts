@@ -83,7 +83,7 @@ from pathlib import Path
 work = Path(sys.argv[1])
 root = Path(sys.argv[2])
 sys.path.insert(0, str(root / "scripts"))
-from contract_keys import contract_union, items, parse_classified, section
+from contract_keys import check_classification, items, section
 contract = (work / "contract.md").read_text()
 
 roles = {}
@@ -265,23 +265,9 @@ def check_render(name):
 for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks", "gitea-full", "github-full", "cache", "board-mcp"):
     check_render(name)
 
-# ---- contract-keys.yaml classification (shared parser: scripts/contract_keys.py) ----
+# ---- contract-keys.yaml classification (shared gate: scripts/contract_keys.py) ----
 keys_path = root / "charts/jumi/contract-keys.yaml"
-classified = parse_classified(keys_path.read_text())
-
-union = contract_union(contract)
-
-unclassified = sorted(union - set(classified))
-if unclassified:
-    raise SystemExit(f"unclassified contract key(s): {', '.join(unclassified)} — add each to charts/jumi/contract-keys.yaml (value/extraEnv/internal)")
-
-for key, meta in sorted(classified.items()):
-    if meta["kind"] not in ("value", "extraEnv", "internal"):
-        raise SystemExit(f"{key}: unknown kind {meta['kind']!r} (want value/extraEnv/internal)")
-    if meta["kind"] == "value" and not meta["via"]:
-        raise SystemExit(f"{key}: value kind needs a `via:` chart value")
-    if meta["kind"] == "extraEnv" and not meta["components"]:
-        raise SystemExit(f"{key}: extraEnv kind must name component(s)")
+union, classified = check_classification(contract, keys_path.read_text())
 
 # Every `value` key must render somewhere across the fixtures (gitea+github
 # full renders enable every optional value knob; union covers forge splits).
