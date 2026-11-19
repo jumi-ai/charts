@@ -5,8 +5,9 @@
   "prCreation": "immediate",
   "addLabels": ["jumi", "ignore-conflicts"],
   "minimumReleaseAge": "3 days",
-  "automerge": false,
-  "platformAutomerge": false,
+  "automerge": true,
+  "platformAutomerge": true,
+  "ignoreTests": false,
   "customManagers": [
     {
       "customType": "regex",

@@ -64,7 +64,7 @@ Review notes for this repository. Each section heading is a comma-separated list
 - A kindest/node bump within `1.30.x` looks fine. A bump off the `1.30` floor is wrong: the kind e2e must keep testing the chart's oldest supported Kubernetes. Compare the e2e cluster image to the packageRules in renovate.json.
 - A checkout bump that moves the commit and the version comment together looks fine. A bare tag is wrong.
 - An empty image.reviewer.tag and image.worker.tag, and a postgres tag of 18-alpine with no digest, look fine. A bot pull that fills a tag, adds a digest, or leaves the 18 line is wrong. An appVersion bump is only correct from the Chart.yaml custom regex manager (github-releases jumi-ai/jumi with extractVersion ^v(?<version>.+)$); a helm-values bump of appVersion is wrong. Compare charts/jumi/values.yaml and charts/jumi/Chart.yaml to the packageRules and customManagers in renovate.json.
-- config:recommended with automerge off looks fine. config:best-practices, automerge, ignoreTests, a schedule, or dryRun in renovate.json is wrong.
+- config:recommended with automerge and platformAutomerge on and ignoreTests false looks fine. config:best-practices, ignoreTests true, a schedule, dryRun, or a packageRule that turns automerge off for an update type is wrong. Compare renovate.json automerge/platformAutomerge/ignoreTests to the packageRules.
 
 ## charts/jumi/Chart.yaml, charts/jumi/values.yaml, charts/jumi/README.md, scripts/contract-check.sh
 
