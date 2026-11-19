@@ -229,6 +229,10 @@ Point the forge hook at the router only.
 
 Enable the events the app README lists.
 
+## Upgrade from 0.6.0
+
+- Unknown values keys now fail the install: a mistyped key is rejected by the schema instead of being silently ignored.
+
 ## Upgrade from 0.5.0
 
 - Chart `0.6.0` pins Jumi `v11.3.1` (includes the Codex `config.toml` bootstrap fix for review-MCP `http_headers`, Jumi v11.1.22). `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
