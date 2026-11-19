@@ -69,6 +69,8 @@ jobs:
           helm version
       - name: Contract drift check
         run: bash scripts/contract-check.sh
+      - name: Classification fixture proof
+        run: bash scripts/contract-keys-fixture-test.sh
 
   e2e:
     if: github.event_name == 'pull_request'

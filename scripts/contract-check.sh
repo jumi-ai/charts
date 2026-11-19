@@ -82,34 +82,13 @@ from pathlib import Path
 
 work = Path(sys.argv[1])
 root = Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+from contract_keys import contract_union, items, parse_classified, section
 contract = (work / "contract.md").read_text()
-
-def section(name):
-    # ### <name> ... up to next ### or ## at same/higher level
-    m = re.search(rf"^### {re.escape(name)}\s*$([\s\S]*?)(?=^### |\n## |\Z)", contract, re.M)
-    if not m:
-        raise SystemExit(f"contract section {name} not found")
-    return m.group(1)
-
-def items(sec, heading):
-    m = re.search(rf"^#### {re.escape(heading)}\s*$([\s\S]*?)(?=^#### |\Z)", sec, re.M)
-    if not m:
-        return []
-    out = []
-    for line in m.group(1).splitlines():
-        line = line.strip()
-        if line.startswith("- `") and line.endswith("`"):
-            out.append(line[3:-1])
-        elif line.startswith("- `"):
-            out.append(line.split("`")[1])
-        elif line.startswith("- "):
-            out.append(line[2:].strip().strip("`"))
-    # ports are bare numbers like "- `3000`" already handled; also "- 3000"
-    return [o for o in out if o]
 
 roles = {}
 for role in ("reviewer", "worker", "control", "job"):
-    sec = section(role)
+    sec = section(contract, role)
     roles[role] = {
         "required": items(sec, "required env"),
         "gitops": items(sec, "gitops env"),
@@ -286,51 +265,13 @@ def check_render(name):
 for name in ("gitea", "github", "codex", "postgres", "ingress", "overlay", "hooks", "gitea-full", "github-full", "cache", "board-mcp"):
     check_render(name)
 
-# ---- contract-keys.yaml classification ----
+# ---- contract-keys.yaml classification (shared parser: scripts/contract_keys.py) ----
 keys_path = root / "charts/jumi/contract-keys.yaml"
-keys_text = keys_path.read_text()
-# Minimal stdlib parse: top-level `  KEY:` entries plus their `kind:`/`via:`/`components:` lines.
-classified = {}
-cur = None
-cur_block = []
-def parse_block(key, lines):
-    kind = None
-    via = None
-    components = None
-    note = None
-    for l in lines:
-        s = l.strip()
-        if s.startswith("kind:"):
-            kind = s.split(":", 1)[1].strip()
-        elif s.startswith("via:"):
-            via = s.split(":", 1)[1].strip()
-        elif s.startswith("components:"):
-            components = s.split(":", 1)[1].strip()
-        elif s.startswith("note:"):
-            note = s.split(":", 1)[1].strip()
-    return {"kind": kind, "via": via, "components": components, "note": note}
-for line in keys_text.splitlines():
-    m = re.match(r"^  ([A-Z0-9_]+):\s*$", line)
-    if m:
-        if cur:
-            classified[cur] = parse_block(cur, cur_block)
-        cur = m.group(1)
-        cur_block = []
-    elif cur is not None:
-        if re.match(r"^[A-Za-z_]", line) and not line.startswith(" ") and not line.startswith("#"):
-            classified[cur] = parse_block(cur, cur_block)
-            cur = None
-            cur_block = []
-        else:
-            cur_block.append(line)
-if cur:
-    classified[cur] = parse_block(cur, cur_block)
+classified = parse_classified(keys_path.read_text())
 
-contract_union = set()
-for role in ("reviewer", "worker", "control", "job"):
-    contract_union |= set(roles[role]["required"]) | set(roles[role]["gitops"]) | set(roles[role]["optional"])
+union = contract_union(contract)
 
-unclassified = sorted(contract_union - set(classified))
+unclassified = sorted(union - set(classified))
 if unclassified:
     raise SystemExit(f"unclassified contract key(s): {', '.join(unclassified)} — add each to charts/jumi/contract-keys.yaml (value/extraEnv/internal)")
 
