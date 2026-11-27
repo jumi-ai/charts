@@ -278,6 +278,14 @@ keys:
     kind: extraEnv
     components: [engine, worker]
     note: Optional checkpoint max age. Set via jobs.extraEnv when needed.
+  JUMI_HARNESS_MODE:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional harness mode (legacy or pi, default legacy). Set via jobs.extraEnv / top-level extraEnv when testing Pi.
+  JUMI_PI_ALLOWED_ROUTES:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional Pi route allowlist (CSV of profile names, unset means all Pi routes off). Set via jobs.extraEnv / top-level extraEnv when needed.
   JUMI_SEARXNG_URL:
     kind: extraEnv
     components: [router, engine, worker]

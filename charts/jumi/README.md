@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.6.0` is tested against image tag `v11.3.1`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.7.0` is tested against image tag `v11.5.8`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.6.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.7.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -189,6 +189,8 @@ Every env key in `deploy/contract.md` at the pinned `appVersion` is classified i
 - `JUMI_CHECKPOINT_ENABLED` (engine, worker): worker checkpoint toggle. Set via `jobs.extraEnv` when needed.
 - `JUMI_CHECKPOINT_INTERVAL_MS` (engine, worker): checkpoint interval. Set via `jobs.extraEnv` when needed.
 - `JUMI_CHECKPOINT_MAX_AGE_MS` (engine, worker): checkpoint max age. Set via `jobs.extraEnv` when needed.
+- `JUMI_HARNESS_MODE` (router, engine, worker): harness mode (`legacy` or `pi`, default `legacy`). Set via `jobs.extraEnv` / top-level `extraEnv` when testing Pi.
+- `JUMI_PI_ALLOWED_ROUTES` (router, engine, worker): Pi route allowlist (CSV of profile names, unset means all Pi routes off). Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
 - `JUMI_SEARXNG_URL` (router, engine, worker): optional `http(s)` SearXNG base URL. Set via `jobs.extraEnv`; needs no chart value.
 - `MAX_CONFLICT_ROUNDS` (engine, worker): worker conflict rounds cap. Set via `jobs.extraEnv` when needed.
 - `MAX_FILES` (router): review file cap (reviewer). Set via `router.extraEnv` when needed.
@@ -231,6 +233,9 @@ Enable the events the app README lists.
 
 ## Upgrade from 0.6.0
 
+- Chart `0.7.0` pins Jumi `v11.5.8`. `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- No breaking changes in the `v11.3.1` → `v11.5.8` range.
+- New optional GitOps (no value changes required, `extraEnv` is enough): Jumi `v11.4.0` adds `JUMI_HARNESS_MODE` (deployment-only `legacy` or `pi` for reviewer, worker, and one-shot Jobs; unset or empty is `legacy`); Jumi `v11.5.0` adds `JUMI_PI_ALLOWED_ROUTES` (deployment-owned Pi route allowlist, CSV of profile names, for reviewer, worker, and one-shot Jobs; unset or blank means all Pi routes stay off). Both render via `jobs.extraEnv` (Jobs) plus top-level `extraEnv` (router); no chart value will be added.
 - Unknown values keys now fail the install: a mistyped key is rejected by the schema instead of being silently ignored.
 
 ## Upgrade from 0.5.0
