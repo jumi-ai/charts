@@ -2,7 +2,7 @@ apiVersion: v2
 name: jumi
 description: Self-hosted Jumi control plane (router, control, one-shot Jobs)
 type: application
-version: 0.7.0
+version: 0.8.0
 appVersion: "11.6.3"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/jumi-ai/charts

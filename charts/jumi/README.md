@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.7.0` is tested against image tag `v11.5.8`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.8.0` is tested against image tag `v11.6.3`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.7.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.8.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -192,6 +192,9 @@ Every env key in `deploy/contract.md` at the pinned `appVersion` is classified i
 - `JUMI_HARNESS_MODE` (router, engine, worker): harness mode (`legacy` or `pi`, default `legacy`). Set via `jobs.extraEnv` / top-level `extraEnv` when testing Pi.
 - `JUMI_PI_ALLOWED_ROUTES` (router, engine, worker): Pi route allowlist (CSV of profile names, unset means all Pi routes off). Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
 - `JUMI_SEARXNG_URL` (router, engine, worker): optional `http(s)` SearXNG base URL. Set via `jobs.extraEnv`; needs no chart value.
+- `JUMI_VERIFY_ATTEMPTS_MAX` (engine, worker): verify attempts max. Set via `jobs.extraEnv` when needed.
+- `JUMI_VERIFY_ENABLED` (engine, worker): verify toggle. Set via `jobs.extraEnv` when needed.
+- `JUMI_VERIFY_TIMEOUT_MAX_MS` (engine, worker): verify timeout ceiling. Set via `jobs.extraEnv` when needed.
 - `MAX_CONFLICT_ROUNDS` (engine, worker): worker conflict rounds cap. Set via `jobs.extraEnv` when needed.
 - `MAX_FILES` (router): review file cap (reviewer). Set via `router.extraEnv` when needed.
 - `MAX_FILES_MAX` (router): review file ceiling (reviewer). Set via `router.extraEnv`; no chart value.
@@ -230,6 +233,12 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.7.0
+
+- Chart `0.8.0` pins Jumi `v11.6.3`. `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- No breaking changes in the `v11.5.8` → `v11.6.3` range.
+- New optional GitOps (no value changes required, `extraEnv` is enough): Jumi `v11.6.0` adds `JUMI_VERIFY_ENABLED` (verify toggle), `JUMI_VERIFY_TIMEOUT_MAX_MS` (verify timeout ceiling), and `JUMI_VERIFY_ATTEMPTS_MAX` (verify attempts max) for worker and one-shot Jobs. They render via `jobs.extraEnv`; no chart value will be added.
 
 ## Upgrade from 0.6.0
 
