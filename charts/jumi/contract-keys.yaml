@@ -290,6 +290,18 @@ keys:
     kind: extraEnv
     components: [router, engine, worker]
     note: Optional http(s) SearXNG base URL. Set via jobs.extraEnv; needs no chart value.
+  JUMI_VERIFY_ATTEMPTS_MAX:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional verify attempts max. Set via jobs.extraEnv when needed.
+  JUMI_VERIFY_ENABLED:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional verify toggle. Set via jobs.extraEnv when needed.
+  JUMI_VERIFY_TIMEOUT_MAX_MS:
+    kind: extraEnv
+    components: [engine, worker]
+    note: Optional verify timeout ceiling. Set via jobs.extraEnv when needed.
   MAX_CONFLICT_ROUNDS:
     kind: extraEnv
     components: [engine, worker]
