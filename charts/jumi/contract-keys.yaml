@@ -278,6 +278,10 @@ keys:
     kind: extraEnv
     components: [engine, worker]
     note: Optional checkpoint max age. Set via jobs.extraEnv when needed.
+  JUMI_FORGE_IDENTITY:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional forge identity. Set via jobs.extraEnv / top-level extraEnv when needed.
   JUMI_HARNESS_MODE:
     kind: extraEnv
     components: [router, engine, worker]
@@ -286,6 +290,10 @@ keys:
     kind: extraEnv
     components: [router, engine, worker]
     note: Optional Pi route allowlist (CSV of profile names, unset means all Pi routes off). Set via jobs.extraEnv / top-level extraEnv when needed.
+  JUMI_PI_PROFILES_FILE:
+    kind: extraEnv
+    components: [router, engine, worker]
+    note: Optional Pi profile catalog file (JSON object of named profiles; required with JUMI_HARNESS_MODE=pi, never read in legacy mode). Set via jobs.extraEnv / top-level extraEnv when needed.
   JUMI_SEARXNG_URL:
     kind: extraEnv
     components: [router, engine, worker]
