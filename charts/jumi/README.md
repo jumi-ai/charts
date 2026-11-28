@@ -4,7 +4,7 @@ Helm chart for a self-hosted Jumi control plane.
 
 It installs a router, a control StatefulSet, one-shot Job templates, and optional Postgres.
 
-Chart `0.8.0` is tested against image tag `v11.6.3`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
+Chart `0.9.0` is tested against image tag `v11.9.4`. Images are `ghcr.io/jumi-ai/jumi-reviewer` and `ghcr.io/jumi-ai/jumi-worker`.
 
 ## What you get
 
@@ -43,7 +43,7 @@ Bundled Postgres skips `DATABASE_URL` and reads `postgres-password` from that sa
 From the packaged chart:
 
 ```bash
-helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.8.0 \
+helm install jumi oci://ghcr.io/jumi-ai/charts/jumi --version 0.9.0 \
   --set secret.existingSecret=jumi-secrets \
   --set gitea.url=https://gitea.example \
   --set gitea.allowedOrgs=your-org
@@ -189,8 +189,10 @@ Every env key in `deploy/contract.md` at the pinned `appVersion` is classified i
 - `JUMI_CHECKPOINT_ENABLED` (engine, worker): worker checkpoint toggle. Set via `jobs.extraEnv` when needed.
 - `JUMI_CHECKPOINT_INTERVAL_MS` (engine, worker): checkpoint interval. Set via `jobs.extraEnv` when needed.
 - `JUMI_CHECKPOINT_MAX_AGE_MS` (engine, worker): checkpoint max age. Set via `jobs.extraEnv` when needed.
+- `JUMI_FORGE_IDENTITY` (router, engine, worker): optional forge identity. Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
 - `JUMI_HARNESS_MODE` (router, engine, worker): harness mode (`legacy` or `pi`, default `legacy`). Set via `jobs.extraEnv` / top-level `extraEnv` when testing Pi.
 - `JUMI_PI_ALLOWED_ROUTES` (router, engine, worker): Pi route allowlist (CSV of profile names, unset means all Pi routes off). Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
+- `JUMI_PI_PROFILES_FILE` (router, engine, worker): Pi profile catalog file (JSON object of named profiles; required with `JUMI_HARNESS_MODE=pi`, never read in legacy mode). Set via `jobs.extraEnv` / top-level `extraEnv` when needed.
 - `JUMI_SEARXNG_URL` (router, engine, worker): optional `http(s)` SearXNG base URL. Set via `jobs.extraEnv`; needs no chart value.
 - `JUMI_VERIFY_ATTEMPTS_MAX` (engine, worker): verify attempts max. Set via `jobs.extraEnv` when needed.
 - `JUMI_VERIFY_ENABLED` (engine, worker): verify toggle. Set via `jobs.extraEnv` when needed.
@@ -233,6 +235,12 @@ Point the forge hook at the router only.
 - GitHub: `https://<ingress>/webhooks/github`
 
 Enable the events the app README lists.
+
+## Upgrade from 0.8.0
+
+- Chart `0.9.0` pins Jumi `v11.9.4`. `image.reviewer.tag` / `image.worker.tag` still override the default. Merging the version bump publishes (the existing publish-on-version-bump job); do not tag by hand.
+- No breaking changes in the `v11.6.3` → `v11.9.4` range.
+- New optional GitOps (no value changes required, `extraEnv` is enough): Jumi `v11.8.0` adds `JUMI_FORGE_IDENTITY` (optional forge identity for reviewer, worker, and one-shot Jobs); Jumi `v11.7.0` adds `JUMI_PI_PROFILES_FILE` (deployment-owned Pi profile catalog file, JSON object of named profiles, for reviewer, worker, and one-shot Jobs; unset with `JUMI_HARNESS_MODE=pi` fails process start, never read in legacy mode). Both render via `jobs.extraEnv` (Jobs) plus top-level `extraEnv` (router); no chart value will be added.
 
 ## Upgrade from 0.7.0
 
